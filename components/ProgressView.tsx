@@ -32,13 +32,14 @@ export function ProgressView({ pais }: Props) {
       const { data: months } = await sb
         .from('therapist_state')
         .select('month')
-        .order('month', { ascending: true });
+        .order('month', { ascending: true })
+        .limit(10000);
       if (!months || !mounted) return;
       const uniqueMonths = Array.from(new Set(months.map((m: any) => m.month))) as string[];
 
       let countryIds: Set<string> | null = null;
       if (pais !== 'T') {
-        const { data: th } = await sb.from('therapists').select('id').eq('pais', pais);
+        const { data: th } = await sb.from('therapists').select('id').eq('pais', pais).limit(2000);
         countryIds = new Set((th || []).map((t: any) => t.id));
       }
 
@@ -47,7 +48,8 @@ export function ProgressView({ pais }: Props) {
         const { data: rows } = await sb
           .from('therapist_state')
           .select('cuadrante, irrecuperable, gan_mes, ses_paciente_3m, therapist_id')
-          .eq('month', m);
+          .eq('month', m)
+          .limit(2000);
         if (!rows) continue;
         const filtered = countryIds ? rows.filter((r: any) => countryIds!.has(r.therapist_id)) : rows;
 
