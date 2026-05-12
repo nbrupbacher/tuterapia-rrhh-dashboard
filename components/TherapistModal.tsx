@@ -6,13 +6,34 @@ import {
   colorScore, colorSesPaciente, segmento,
   cuadranteBadge, accionableBadge, usd, ganHist,
 } from '@/lib/helpers';
-import { PDESC, ADESC, TARIFAS } from '@/lib/constants';
+import { PDESC, ADESC } from '@/lib/constants';
 import { fetchNotes, addNote, deleteNote, type Note } from '@/lib/notes';
 
 interface Props {
   therapist: TherapistView | null;
   userEmail?: string;
   onClose: () => void;
+}
+
+// Limpiar teléfono para WhatsApp: solo números, agregar código país si falta
+function waLink(phone: string | null, pais: 'AR' | 'UY'): string | null {
+  if (!phone) return null;
+  const cleaned = phone.replace(/[^0-9]/g, '');
+  if (!cleaned) return null;
+  // Si ya tiene código de país completo, usarlo
+  if (cleaned.startsWith('54') || cleaned.startsWith('598')) {
+    return `https://wa.me/${cleaned}`;
+  }
+  // Si empieza con 0 (formato local AR), quitarlo
+  const noLeadingZero = cleaned.replace(/^0+/, '');
+  // Agregar código país según país del terapeuta
+  const prefix = pais === 'AR' ? '54' : '598';
+  return `https://wa.me/${prefix}${noLeadingZero}`;
+}
+
+function formatPhone(phone: string | null): string {
+  if (!phone) return '—';
+  return phone;
 }
 
 export function TherapistModal({ therapist, userEmail, onClose }: Props) {
@@ -30,14 +51,12 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
   const r = therapist;
 
   const sp = r.sesPaciente3m || 0;
-  const tc = r.regMes != null ? (() => {
-    const tasa = (r as any).tasaCancelMes;
-    return tasa != null ? Math.min(tasa, 1) : 0;
-  })() : 0;
+  const tc = r.tasaCancelMes ?? 0;
   const deltaPac = r.pacMes != null && r.pacAnt != null ? r.pacMes - r.pacAnt : null;
   const gh = ganHist(r);
   const cBadge = cuadranteBadge(r.cuadrante);
   const aBadge = accionableBadge(r.accionable);
+  const whatsapp = waLink(r.telefono, r.pais);
 
   const itag = (v: number | null | undefined, suf = '') => {
     if (v == null) return null;
@@ -81,9 +100,10 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
               {r.pais} · {segmento(r.dias)} · Alta: {r.inicio || '—'}
               {r.corriente && ` · ${r.corriente}`}
             </div>
-            <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', minHeight: 18 }}>
-              {r.email ? (
-                <>
+            {/* Email + WhatsApp */}
+            <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {r.email && (
+                <div style={{ display: 'flex', alignItems: 'center', minHeight: 18 }}>
                   <span style={{ fontFamily: 'var(--m)', fontSize: 11, color: 'var(--t2)' }}>{r.email}</span>
                   <button
                     onClick={handleCopy}
@@ -91,8 +111,23 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
                   >
                     {copied ? '✓ copiado' : 'Copiar'}
                   </button>
-                </>
-              ) : <span style={{ fontSize: 11, color: 'var(--t3)' }}>—</span>}
+                </div>
+              )}
+              {r.telefono && (
+                <div style={{ display: 'flex', alignItems: 'center', minHeight: 18 }}>
+                  <span style={{ fontFamily: 'var(--m)', fontSize: 11, color: 'var(--t2)' }}>📱 {formatPhone(r.telefono)}</span>
+                  {whatsapp && (
+                    <a
+                      href={whatsapp}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ marginLeft: 8, fontSize: 10, padding: '2px 8px', borderRadius: 4, border: '1px solid #25d36644', background: '#25d36622', color: '#25d366', textDecoration: 'none', fontFamily: 'var(--f)', fontWeight: 600 }}
+                    >
+                      💬 WhatsApp
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <button className="mcl" onClick={onClose}>✕</button>
@@ -120,9 +155,9 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
                     Prom.ses 3m <span style={{ color: colorSesPaciente(sp) }}>{sp.toFixed(1)}</span>
                   </span>
                 )}
-                {(r as any).reg3m != null && (
+                {r.reg3m != null && (
                   <span className="ic">
-                    Reg. 3m <span style={{ color: 'var(--t)' }}>{(r as any).reg3m}</span>
+                    Reg. 3m <span style={{ color: 'var(--t)' }}>{r.reg3m}</span>
                   </span>
                 )}
                 {tc > 0.2 && (
