@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getSupabase } from '@/lib/supabase';
 import { Header } from '@/components/Header';
 import { KpiSections } from '@/components/KpiSection';
+import { KpiDeltas } from '@/components/KpiDeltas';
 import { TableTabs } from '@/components/TableTabs';
 import { TableFilters, type FilterState } from '@/components/TableFilters';
 import { DashboardTable } from '@/components/DashboardTable';
@@ -16,6 +17,12 @@ import type {
   TherapistRow, TherapistStateRow, MonthlyMetricsRow,
 } from '@/lib/types';
 
+interface PrevStats {
+  scoreAvg: number | null;
+  ganTotal: number | null;
+  spAvg: number | null;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const supabase = getSupabase();
@@ -24,6 +31,7 @@ export default function DashboardPage() {
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
   const [therapists, setTherapists] = useState<TherapistView[]>([]);
   const [currentMonth, setCurrentMonth] = useState<string>('—');
+  const [prevStats, setPrevStats] = useState<PrevStats>({ scoreAvg: null, ganTotal: null, spAvg: null });
   const [selectedTherapist, setSelectedTherapist] = useState<TherapistView | null>(null);
 
   const [view, setView] = useState<View>('pred');
@@ -45,21 +53,37 @@ export default function DashboardPage() {
       const { data: months } = await supabase
         .from('therapist_state')
         .select('month')
-        .order('computed_at', { ascending: false })
-        .limit(1);
-      const latestMonth = months?.[0]?.month;
-      if (!latestMonth) { setLoading(false); return; }
+        .order('month', { ascending: false });
+      const uniqueMonths = Array.from(new Set((months || []).map((m: any) => m.month))) as string[];
+      if (!uniqueMonths.length) { setLoading(false); return; }
+
+      const latestMonth = uniqueMonths[0];
+      const prevMonth = uniqueMonths[1] || null;
       setCurrentMonth(latestMonth);
 
-      const [yy, mm] = latestMonth.split('-').map(Number);
-      const prevDate = new Date(yy, mm - 2, 1);
-      const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+      const { data: thRows } = await supabase.from('therapists').select('*').eq('activo', true).limit(2000);
 
-      const { data: thRows } = await supabase.from('therapists').select('*').eq('activo', true);
-      const { data: stateRows } = await supabase.from('therapist_state').select('*').eq('month', latestMonth);
-      const { data: metricsRows } = await supabase.from('monthly_metrics').select('*').in('month', [latestMonth, prevMonth]);
+      // State mes actual
+      const { data: stateRows } = await supabase.from('therapist_state').select('*').eq('month', latestMonth).limit(2000);
+      // State mes anterior (para calcular deltas)
+      const { data: prevStateRows } = prevMonth
+        ? await supabase.from('therapist_state').select('score, gan_mes, ses_paciente_3m').eq('month', prevMonth).limit(2000)
+        : { data: [] };
+      // Metrics actual + anterior
+      const monthsToFetch = prevMonth ? [latestMonth, prevMonth] : [latestMonth];
+      const { data: metricsRows } = await supabase.from('monthly_metrics').select('*').in('month', monthsToFetch).limit(5000);
 
       if (!mounted) return;
+
+      // Calcular stats del mes anterior
+      if (prevStateRows && prevStateRows.length > 0) {
+        const ps = prevStateRows as any[];
+        const scoreAvg = ps.reduce((s, r) => s + (Number(r.score) || 0), 0) / ps.length;
+        const ganTotal = ps.reduce((s, r) => s + (Number(r.gan_mes) || 0), 0);
+        const spValid = ps.filter(r => r.ses_paciente_3m && Number(r.ses_paciente_3m) > 0);
+        const spAvg = spValid.length ? spValid.reduce((s, r) => s + Number(r.ses_paciente_3m), 0) / spValid.length : 0;
+        setPrevStats({ scoreAvg, ganTotal, spAvg });
+      }
 
       const stateMap = new Map<string, TherapistStateRow>(
         (stateRows || []).map((s: TherapistStateRow) => [s.therapist_id, s])
@@ -124,14 +148,27 @@ export default function DashboardPage() {
     router.replace('/login');
   }, [router, supabase]);
 
+  // Función helper: limpiar todos los filtros (excepto search)
+  function clearAllFilters() {
+    setFilters({
+      search: filters.search,
+      accionable: '', segmento: '', tendencia: '', senal: '',
+    });
+    setVidFilter(false);
+    setTab('T');
+  }
+
   const filtered = useMemo(() => {
     return therapists
       .filter((r) => pais === 'T' || r.pais === pais)
       .filter((r) => {
+        // Tabs (mutuamente exclusivos)
         if (tab === 'IRR' && !r.irrecuperable) return false;
         if (tab === 'OC' && !(r.score >= 70 && r.tendencia === 'bajando')) return false;
         if (tab === 'NUE' && segmento(r.dias) !== 'Nuevo') return false;
         if (tab === 'SEG45' && !r.videollamada) return false;
+
+        // Filtros del select
         if (filters.search && !r.nombre.toLowerCase().includes(filters.search.toLowerCase())) return false;
         if (filters.accionable && r.accionable !== filters.accionable) return false;
         if (filters.segmento && segmento(r.dias) !== filters.segmento) return false;
@@ -142,17 +179,29 @@ export default function DashboardPage() {
       });
   }, [therapists, pais, tab, filters, vidFilter]);
 
+  // Handler unificado: cualquier click en KPI resetea TODO lo demás (filtros + tab + bucket)
+  // y aplica solo lo nuevo. Así no se superponen filtros entre clicks.
   function handleKpiClick(filter: { acc?: string; sen?: string; tab?: string; vid?: boolean }) {
     setFilters({
-      search: filters.search,
+      search: filters.search,  // mantengo search
       accionable: filter.acc || '',
       segmento: '', tendencia: '',
       senal: filter.sen || '',
     });
     setVidFilter(filter.vid || false);
-    if (filter.tab) setTab(filter.tab as TabKey);
-    else setTab('T');
+    setTab(filter.tab ? (filter.tab as TabKey) : 'T');
   }
+
+const hayFiltrosActivos = useMemo(() => {
+    return (
+      tab !== 'T' ||
+      vidFilter ||
+      filters.accionable !== '' ||
+      filters.segmento !== '' ||
+      filters.tendencia !== '' ||
+      filters.senal !== ''
+    );
+  }, [tab, vidFilter, filters]);
 
   if (loading) return <div className="loading-wrap">Cargando…</div>;
 
@@ -172,8 +221,19 @@ export default function DashboardPage() {
           <ProgressView pais={pais} />
         ) : (
           <>
+            <KpiDeltas
+              data={therapists.filter(t => pais === 'T' || t.pais === pais)}
+              prevStats={prevStats}
+            />
             <KpiSections data={therapists} pais={pais} onKpiClick={handleKpiClick} />
             <TableTabs tab={tab} setTab={setTab} />
+            {hayFiltrosActivos && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+                <button className="btn" onClick={clearAllFilters} style={{ fontSize: 10 }}>
+                  ✕ Limpiar filtros
+                </button>
+              </div>
+            )}
             <TableFilters filters={filters} setFilters={setFilters} count={filtered.length} />
             <DashboardTable data={filtered} view={view} onRowClick={setSelectedTherapist} />
           </>
