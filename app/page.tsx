@@ -31,7 +31,6 @@ export default function DashboardPage() {
   });
   const [vidFilter, setVidFilter] = useState(false);
 
-  // Auth + carga de datos
   useEffect(() => {
     let mounted = true;
 
@@ -47,15 +46,11 @@ export default function DashboardPage() {
       setUserEmail(session.user.email);
 
       // 1. Buscar el mes más reciente
-      const { data: months, error: monthsErr } = await supabase
+      const { data: months } = await supabase
         .from('therapist_state')
         .select('month')
         .order('computed_at', { ascending: false })
         .limit(1);
-
-      if (monthsErr) {
-        console.error('Error cargando meses:', monthsErr);
-      }
 
       const latestMonth = months?.[0]?.month;
       if (!latestMonth) {
@@ -65,7 +60,12 @@ export default function DashboardPage() {
 
       setCurrentMonth(latestMonth);
 
-      // 2. Cargar therapists activos
+      // Calcular el mes anterior (YYYY-MM-1 → YYYY-(MM-1))
+      const [yy, mm] = latestMonth.split('-').map(Number);
+      const prevDate = new Date(yy, mm - 2, 1); // mm-2 porque months son 0-indexed
+      const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+
+      // 2. Cargar therapists activos (con acumulados)
       const { data: thRows } = await supabase
         .from('therapists')
         .select('*')
@@ -77,27 +77,30 @@ export default function DashboardPage() {
         .select('*')
         .eq('month', latestMonth);
 
-      // 4. Cargar monthly_metrics del mes actual
+      // 4. Cargar monthly_metrics del mes actual Y del anterior
       const { data: metricsRows } = await supabase
         .from('monthly_metrics')
         .select('*')
-        .eq('month', latestMonth);
+        .in('month', [latestMonth, prevMonth]);
 
       if (!mounted) return;
 
-      // 5. Mergear todo en TherapistView
       const stateMap = new Map<string, TherapistStateRow>(
         (stateRows || []).map((s: TherapistStateRow) => [s.therapist_id, s])
       );
-      const metricsMap = new Map<string, MonthlyMetricsRow>(
-        (metricsRows || []).map((m: MonthlyMetricsRow) => [m.therapist_id, m])
-      );
+      // Separar metrics por mes
+      const metricsCurrent = new Map<string, MonthlyMetricsRow>();
+      const metricsPrev = new Map<string, MonthlyMetricsRow>();
+      (metricsRows || []).forEach((m: MonthlyMetricsRow) => {
+        if (m.month === latestMonth) metricsCurrent.set(m.therapist_id, m);
+        else if (m.month === prevMonth) metricsPrev.set(m.therapist_id, m);
+      });
 
       const merged: TherapistView[] = (thRows || []).map((t: TherapistRow) => {
         const st = stateMap.get(t.id);
-        const mt = metricsMap.get(t.id);
+        const mt = metricsCurrent.get(t.id);
+        const mp = metricsPrev.get(t.id);
 
-        // Calcular días en plataforma
         const inicioDate = t.inicio ? new Date(t.inicio) : null;
         const dias = inicioDate
           ? Math.floor((Date.now() - inicioDate.getTime()) / (1000 * 60 * 60 * 24))
@@ -113,6 +116,10 @@ export default function DashboardPage() {
           dias,
           activo: t.activo,
 
+          regTotalHist: t.registros_totales_hist || 0,
+          sesionesHist: t.sesiones_totales_hist || 0,
+          pacientesHist: t.pacientes_unicos_hist || 0,
+
           score: st?.score || 0,
           zona: st?.zona || 'Rojo',
           cuadrante: st?.cuadrante || 'D',
@@ -122,14 +129,18 @@ export default function DashboardPage() {
           accionable: st?.accionable || 'monitorear',
           sesPaciente3m: Number(st?.ses_paciente_3m || 0),
           ganMes: Number(st?.gan_mes || 0),
-          diasSinSesion: st?.dias_sin_sesion || 0,
+          diasSinSesion: st?.dias_sin_sesion ?? null,
           videollamada: st?.videollamada || false,
 
-          sesMes: mt?.sesiones_totales || null,
-          pacMes: mt?.pacientes_unicos || null,
-          regMes: mt?.registros_totales || null,
+          sesMes: mt?.sesiones_totales ?? null,
+          pacMes: mt?.pacientes_unicos ?? null,
+          regMes: mt?.registros_mes ?? null,
           hs: mt?.hs_disponibles || 0,
           ultimaSesion: mt?.ultima_sesion || null,
+
+          pacAnt: mp?.pacientes_unicos ?? null,
+          sesAnt: mp?.sesiones_totales ?? null,
+          regAnt: mp?.registros_mes ?? null,
         };
       });
 
@@ -139,7 +150,6 @@ export default function DashboardPage() {
 
     init();
 
-    // Listener para logout
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) router.replace('/login');
     });
@@ -205,11 +215,7 @@ export default function DashboardPage() {
         {therapists.length === 0 ? (
           <div className="empty-wrap">
             <h3>No hay datos cargados todavía</h3>
-            <p>El próximo paso es importar los terapeutas del HTML actual a Supabase.</p>
-            <p style={{ marginTop: 8, fontSize: 11, color: 'var(--t3)' }}>
-              Una vez que importes datos en la tabla <code>therapist_state</code>,
-              <br />el dashboard los va a mostrar automáticamente.
-            </p>
+            <p>Importá los terapeutas a Supabase para ver el dashboard.</p>
           </div>
         ) : view === 'prog' ? (
           <div className="empty-wrap">
@@ -221,7 +227,7 @@ export default function DashboardPage() {
             <KpiSections data={therapists} pais={pais} onKpiClick={handleKpiClick} />
             <TableTabs tab={tab} setTab={setTab} />
             <TableFilters filters={filters} setFilters={setFilters} count={filtered.length} />
-            <DashboardTable data={filtered} onRowClick={(t) => console.log('TODO: modal', t)} />
+            <DashboardTable data={filtered} view={view} onRowClick={(t) => console.log('TODO: modal', t)} />
           </>
         )}
       </div>
