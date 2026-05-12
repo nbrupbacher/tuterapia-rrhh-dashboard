@@ -128,7 +128,7 @@ function ProgCard({ title, series, labels, legend, formatY, note }: {
   formatY?: (v: number) => string;
   note?: string;
 }) {
-  const W = 440, H = 180, PL = 38, PR = 12, PT = 10, PB = 28;
+  const W = 440, H = 200, PL = 40, PR = 16, PT = 28, PB = 32;
   const cW = W - PL - PR, cH = H - PT - PB;
   const allVals = series.flatMap(s => s.data).filter(v => v != null && !isNaN(v));
   let yMin = allVals.length ? Math.min(...allVals) : 0;
@@ -177,7 +177,7 @@ function ProgCard({ title, series, labels, legend, formatY, note }: {
                     <g key={`bar-${i}`}>
                       <rect x={xP(i) - barW / 2} y={by} width={barW} height={bH} fill={col} rx="2" opacity="0.85" />
                       {n <= 4 && (
-                        <text x={xP(i)} y={by - 4} textAnchor="middle" fontSize="10" fill={col}>
+                        <text x={xP(i)} y={by - 8} textAnchor="middle" fontSize="11" fontWeight="600" fill={col}>
                           {formatY ? formatY(v) : v}
                         </text>
                       )}
@@ -196,7 +196,7 @@ function ProgCard({ title, series, labels, legend, formatY, note }: {
             return (
               <g key={`pt-${si}`}>
                 <circle cx={p.x} cy={p.y} r="5" fill={s.color} />
-                <text x={p.x} y={p.y - 10} textAnchor="middle" fontSize="11" fontWeight="600" fill={s.color}>
+                <text x={p.x} y={p.y - 12} textAnchor="middle" fontSize="11" fontWeight="600" fill={s.color}>
                   {formatY ? formatY(p.v) : p.v}
                 </text>
               </g>
@@ -218,7 +218,7 @@ function ProgCard({ title, series, labels, legend, formatY, note }: {
                 <circle key={`dot-${p.i}`} cx={p.x} cy={p.y} r="3" fill={s.color} />
               ))}
               {n <= 10 && validPts.map((p) => (
-                <text key={`val-${p.i}`} x={p.x} y={p.y - 8} textAnchor="middle" fontSize="9" fill={s.color}>
+                <text key={`val-${p.i}`} x={p.x} y={p.y - 10} textAnchor="middle" fontSize="10" fontWeight="600" fill={s.color}>
                   {formatY ? formatY(p.v) : Math.round(p.v)}
                 </text>
               ))}
