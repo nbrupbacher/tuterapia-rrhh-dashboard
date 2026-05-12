@@ -77,8 +77,14 @@ tbody tr:last-child { border-bottom:none; }
 tbody tr:hover { background:var(--bg2); }
 td { padding:6px 8px; font-size:12px; white-space:nowrap; vertical-align:middle; overflow:hidden; text-overflow:ellipsis; }
 
-.c-n { width:145px; } .c-p { width:36px; } .c-s { width:72px; } .c-sg { width:76px; }
-.c-t { width:88px; } .c-pr { width:108px; } .c-a { width:155px; }
+/* Column widths - PREDICTIBILIDAD */
+.c-n { width:160px; } .c-p { width:36px; } .c-s { width:80px; } .c-sg { width:76px; }
+.c-t { width:90px; } .c-pr { width:130px; } .c-a { width:165px; }
+/* Column widths - ANÁLISIS */
+.c-es { width:36px; }
+.c-se { width:56px; } .c-pp { width:60px; } .c-pa { width:80px; } .c-rm { width:60px; }
+.c-cv { width:60px; } .c-rt { width:70px; } .c-sp { width:72px; }
+.c-ul { width:60px; } .c-hs { width:96px; } .c-gh { width:96px; } .c-gm { width:96px; }
 
 .tn { font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .tm { font-family:var(--m); font-size:11px; }
@@ -97,17 +103,18 @@ td { padding:6px 8px; font-size:12px; white-space:nowrap; vertical-align:middle;
 
 .pr { display:inline-flex; align-items:center; padding:1px 6px; border-radius:20px; font-size:10px; font-weight:600; }
 .pr-a { background:rgba(52,211,153,.12); color:var(--v); border:1px solid rgba(52,211,153,.25); }
-.pr-b { background:rgba(245,166,35,.12); color:var(--am); border:1px solid rgba(245,166,35,.25); }
-.pr-c { background:rgba(79,142,247,.1); color:var(--ac); border:1px solid rgba(79,142,247,.25); }
-.pr-d { background:rgba(240,82,82,.1); color:var(--r); border:1px solid rgba(240,82,82,.22); }
+.pr-b { background:rgba(192,132,252,.12); color:#c084fc; border:1px solid rgba(192,132,252,.25); }
+.pr-c { background:rgba(56,189,248,.1); color:var(--uy); border:1px solid rgba(56,189,248,.25); }
+.pr-d { background:rgba(245,166,35,.1); color:var(--am); border:1px solid rgba(245,166,35,.25); }
 
 .ac { display:inline-flex; align-items:center; padding:2px 8px; border-radius:5px; font-size:11px; font-weight:500; white-space:nowrap; }
 .ai { background:rgba(120,0,0,.25); color:#f87171; border:1px solid rgba(240,82,82,.4); }
 .ar2 { background:rgba(240,82,82,.12); color:var(--r); border:1px solid rgba(240,82,82,.4); }
-.am2 { background:rgba(79,142,247,.1); color:var(--ac); border:1px solid rgba(79,142,247,.25); }
+.am2 { background:rgba(167,139,250,.1); color:var(--ar); border:1px solid rgba(167,139,250,.25); }
 .ap { background:rgba(52,211,153,.1); color:var(--v); border:1px solid rgba(52,211,153,.25); }
 .at { background:rgba(245,166,35,.1); color:var(--am); border:1px solid rgba(245,166,35,.25); }
-.ac2 { background:rgba(167,139,250,.1); color:var(--ar); border:1px solid rgba(167,139,250,.25); }
+.ac2 { background:rgba(245,166,35,.12); color:var(--am); border:1px solid rgba(245,166,35,.25); }
+.ad { background:rgba(79,142,247,.1); color:var(--ac); border:1px solid rgba(79,142,247,.25); }
 .amo { background:var(--bg3); color:var(--t3); border:1px solid var(--bd); }
 .avid { background:rgba(56,189,248,.12); color:#38bdf8; border:1px solid rgba(56,189,248,.3); }
 
@@ -115,6 +122,22 @@ td { padding:6px 8px; font-size:12px; white-space:nowrap; vertical-align:middle;
 .sbar { width:30px; height:3px; background:var(--bg4); border-radius:2px; overflow:hidden; }
 .sf { height:100%; border-radius:2px; }
 .sn { font-family:var(--m); font-size:11px; }
+
+/* Delta pacientes (conversión visual) */
+.dp { display:inline-flex; align-items:center; padding:0 4px; border-radius:3px; font-size:9px; font-weight:700; font-family:var(--m); }
+.dp-u { background:rgba(52,211,153,.12); color:var(--v); }
+.dp-d { background:rgba(240,82,82,.12); color:var(--r); }
+.dp-e { background:rgba(255,255,255,.05); color:var(--t3); }
+
+/* Ganancia colores */
+.gp { color:var(--v); font-family:var(--m); font-size:11px; }
+.gn { color:var(--r); font-family:var(--m); font-size:11px; }
+.g0 { color:var(--t3); font-family:var(--m); font-size:11px; }
+
+/* Bar de horas disponibles */
+.hb { display:flex; align-items:center; gap:5px; }
+.hbg { width:40px; height:4px; background:var(--bg4); border-radius:2px; overflow:hidden; }
+.hbf { height:100%; border-radius:2px; }
 
 .ri { background:rgba(120,0,0,.15) !important; border-left:3px solid #c00; }
 .ro { background:rgba(245,166,35,.05) !important; border-left:2px solid var(--am); }
