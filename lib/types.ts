@@ -8,7 +8,6 @@ export type TabKey = 'T' | 'IRR' | 'OC' | 'NUE' | 'SEG45';
 export type Tendencia = 'subiendo' | 'estable' | 'bajando' | 'arrancando' | 'sin actividad';
 export type Cuadrante = 'A' | 'B' | 'C' | 'D';
 
-// Fila de la tabla `therapists` en Supabase
 export interface TherapistRow {
   id: string;
   pais: Pais;
@@ -26,7 +25,6 @@ export interface TherapistRow {
   pacientes_unicos_hist: number | null;
 }
 
-// Fila de `therapist_state`
 export interface TherapistStateRow {
   therapist_id: string;
   month: string;
@@ -45,7 +43,6 @@ export interface TherapistStateRow {
   videollamada: boolean;
 }
 
-// Fila de `monthly_metrics` (registros_mes = del mes, NO acumulado)
 export interface MonthlyMetricsRow {
   therapist_id: string;
   month: string;
@@ -59,19 +56,19 @@ export interface MonthlyMetricsRow {
   ultima_sesion: string | null;
 }
 
-// Tipo "fusionado" para la UI
 export interface TherapistView {
   // De therapists
   id: string;
   nombre: string;
   pais: Pais;
   email: string | null;
+  telefono: string | null;
   corriente: string | null;
   inicio: string | null;
   dias: number;
   activo: boolean;
 
-  // Acumulados históricos (de therapists)
+  // Acumulados históricos
   regTotalHist: number;
   sesionesHist: number;
   pacientesHist: number;
@@ -88,6 +85,8 @@ export interface TherapistView {
   ganMes: number;
   diasSinSesion: number | null;
   videollamada: boolean;
+  tasaCancelMes: number | null;
+  reg3m: number | null;
 
   // De monthly_metrics del mes actual
   sesMes: number | null;
@@ -96,7 +95,7 @@ export interface TherapistView {
   hs: number;
   ultimaSesion: string | null;
 
-  // Del mes ANTERIOR (para deltas/conversión en Análisis)
+  // Del mes anterior
   pacAnt: number | null;
   sesAnt: number | null;
   regAnt: number | null;
