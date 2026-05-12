@@ -81,6 +81,7 @@ export default function DashboardPage() {
           : 0;
         return {
           id: t.id, nombre: t.nombre, pais: t.pais, email: t.email,
+          telefono: t.telefono,
           corriente: t.corriente, inicio: t.inicio, dias, activo: t.activo,
           regTotalHist: t.registros_totales_hist || 0,
           sesionesHist: t.sesiones_totales_hist || 0,
@@ -96,6 +97,8 @@ export default function DashboardPage() {
           ganMes: Number(st?.gan_mes || 0),
           diasSinSesion: st?.dias_sin_sesion ?? null,
           videollamada: st?.videollamada || false,
+          tasaCancelMes: st?.tasa_cancel != null ? Number(st.tasa_cancel) : null,
+          reg3m: st?.reg_3m != null ? Number(st.reg_3m) : null,
           sesMes: mt?.sesiones_totales ?? null,
           pacMes: mt?.pacientes_unicos ?? null,
           regMes: mt?.registros_mes ?? null,
