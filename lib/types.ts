@@ -17,10 +17,13 @@ export interface TherapistRow {
   telefono: string | null;
   corriente: string | null;
   edad: number | null;
-  inicio: string | null;          // YYYY-MM-DD
+  inicio: string | null;
   activo: boolean;
   fecha_baja: string | null;
   motivo_baja: string | null;
+  registros_totales_hist: number | null;
+  sesiones_totales_hist: number | null;
+  pacientes_unicos_hist: number | null;
 }
 
 // Fila de `therapist_state`
@@ -42,7 +45,7 @@ export interface TherapistStateRow {
   videollamada: boolean;
 }
 
-// Fila de `monthly_metrics`
+// Fila de `monthly_metrics` (registros_mes = del mes, NO acumulado)
 export interface MonthlyMetricsRow {
   therapist_id: string;
   month: string;
@@ -51,12 +54,12 @@ export interface MonthlyMetricsRow {
   ses_canceladas: number | null;
   pacientes_unicos: number | null;
   sesiones_totales: number | null;
-  registros_totales: number | null;
+  registros_mes: number | null;
   hs_disponibles: number | null;
   ultima_sesion: string | null;
 }
 
-// Tipo "fusionado" para la UI: junta therapist + state + métricas del mes
+// Tipo "fusionado" para la UI
 export interface TherapistView {
   // De therapists
   id: string;
@@ -68,7 +71,12 @@ export interface TherapistView {
   dias: number;
   activo: boolean;
 
-  // De therapist_state (del mes actual)
+  // Acumulados históricos (de therapists)
+  regTotalHist: number;
+  sesionesHist: number;
+  pacientesHist: number;
+
+  // De therapist_state del mes actual
   score: number;
   zona: 'Verde' | 'Amarillo' | 'Rojo';
   cuadrante: Cuadrante;
@@ -78,13 +86,18 @@ export interface TherapistView {
   accionable: string;
   sesPaciente3m: number;
   ganMes: number;
-  diasSinSesion: number;
+  diasSinSesion: number | null;
   videollamada: boolean;
 
-  // De monthly_metrics (del mes actual)
+  // De monthly_metrics del mes actual
   sesMes: number | null;
   pacMes: number | null;
   regMes: number | null;
   hs: number;
   ultimaSesion: string | null;
+
+  // Del mes ANTERIOR (para deltas/conversión en Análisis)
+  pacAnt: number | null;
+  sesAnt: number | null;
+  regAnt: number | null;
 }
