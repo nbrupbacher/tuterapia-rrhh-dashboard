@@ -170,3 +170,33 @@ td { padding:6px 8px; font-size:12px; white-space:nowrap; vertical-align:middle;
   .hdr, .main { padding:10px; }
   .ks { grid-template-columns:repeat(2,1fr); }
 }
+/* ============================================================
+   AGREGAR AL FINAL de tu globals.css existente
+   (NO reemplazar - solo append)
+   ============================================================ */
+
+/* === Modal del terapeuta individual === */
+.ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;align-items:center;justify-content:center;padding:16px}
+.ov.open{display:flex}
+.mo{background:var(--bg2);border:1px solid var(--bd2);border-radius:12px;width:100%;max-width:540px;max-height:88vh;overflow-y:auto}
+.mh{padding:13px 18px 10px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;gap:8px}
+.mcl{background:none;border:none;color:var(--t2);cursor:pointer;font-size:15px}
+.mcl:hover{color:var(--t)}
+.mb{padding:13px 18px}
+.mn2{font-size:15px;font-weight:600;margin-bottom:2px}
+.mm{font-size:11px;color:var(--t2);margin-bottom:10px}
+.ms{margin-bottom:12px}
+.mst{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);margin-bottom:6px}
+.mg{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.mst2{background:var(--bg3);border-radius:6px;padding:8px 10px}
+.mv{font-size:15px;font-weight:600;font-family:var(--m);line-height:1.1}
+.ml{font-size:10px;color:var(--t2);margin-top:2px}
+.msb2{font-size:9px;color:var(--t3);margin-top:1px;font-family:var(--m)}
+.ind{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.ic{background:var(--bg4);border-radius:5px;padding:3px 8px;font-size:11px;display:flex;align-items:center;gap:4px}
+
+/* === Vista de Progreso === */
+.prog-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:1100px;margin:0 auto}
+@media(max-width:700px){.prog-grid{grid-template-columns:1fr}}
+.prog-card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}
+.prog-title{font-size:12px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
