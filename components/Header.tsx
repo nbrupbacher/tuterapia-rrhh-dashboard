@@ -1,8 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import type { View, PaisFilter } from '@/lib/types';
+import { UploadModal } from './UploadModal';
 
-interface HeaderProps {
+interface Props {
   view: View;
   setView: (v: View) => void;
   pais: PaisFilter;
@@ -10,71 +12,69 @@ interface HeaderProps {
   mesActual: string;
   userEmail?: string;
   onLogout: () => void;
+  onUploadSuccess?: () => void;
 }
 
-export function Header({ view, setView, pais, setPais, mesActual, userEmail, onLogout }: HeaderProps) {
-  const views: { id: View; label: string }[] = [
-    { id: 'pred', label: 'Predictibilidad' },
-    { id: 'anal', label: 'Análisis' },
-    { id: 'prog', label: '📈 Progreso' },
-  ];
-  const paises: { id: PaisFilter; label: string; cls: string }[] = [
-    { id: 'T', label: 'AR+UY', cls: '' },
-    { id: 'AR', label: 'AR', cls: 'ar' },
-    { id: 'UY', label: 'UY', cls: 'uy' },
-  ];
+function nextMonth(current: string): string {
+  if (!current || current === '—') {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+  const [y, m] = current.split('-').map(Number);
+  const next = new Date(y, m, 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+}
 
-  const userShortName = userEmail?.split('@')[0] || '';
-
+export function Header({ view, setView, pais, setPais, mesActual, userEmail, onLogout, onUploadSuccess }: Props) {
+  const [uploadOpen, setUploadOpen] = useState(false);
+  
   return (
-    <div className="hdr">
-      <div className="logo">
-        <div className="lm">TT</div>
-        <div>
-          <div className="ln">Tu Terapia</div>
-          <div className="ls">
-            RRHH Dashboard
-            {pais !== 'T' && ` · ${pais === 'AR' ? 'Argentina' : 'Uruguay'}`}
+    <>
+      <header className="hdr">
+        <div className="logo">
+          <div className="lm">TT</div>
+          <div>
+            <div className="ln">Tu Terapia · RRHH</div>
+            <div className="ls">Mes actual: {mesActual}</div>
           </div>
         </div>
-      </div>
-
-      <div className="hr">
-        <div className="tog">
-          {views.map((v) => (
-            <button
-              key={v.id}
-              className={`togb ${view === v.id ? 'on' : ''}`}
-              onClick={() => setView(v.id)}
-            >
-              {v.label}
-            </button>
-          ))}
+        
+        <div className="hr">
+          {/* Toggle vista */}
+          <div className="tog">
+            <button className={`togb ${view === 'pred' ? 'on' : ''}`} onClick={() => setView('pred')}>Predicción</button>
+            <button className={`togb ${view === 'anal' ? 'on' : ''}`} onClick={() => setView('anal')}>Análisis</button>
+            <button className={`togb ${view === 'prog' ? 'on' : ''}`} onClick={() => setView('prog')}>📈 Progreso</button>
+          </div>
+          
+          {/* Toggle país */}
+          <div className="tog">
+            <button className={`togb ${pais === 'T' ? 'on' : ''}`} onClick={() => setPais('T')}>Todos</button>
+            <button className={`togb ar ${pais === 'AR' ? 'on' : ''}`} onClick={() => setPais('AR')}>AR</button>
+            <button className={`togb uy ${pais === 'UY' ? 'on' : ''}`} onClick={() => setPais('UY')}>UY</button>
+          </div>
+          
+          {/* Botón upload */}
+          <button className="btn" onClick={() => setUploadOpen(true)} style={{ background: 'var(--ac)', color: '#fff', borderColor: 'var(--ac)' }}>
+            📥 Cargar CSV
+          </button>
+          
+          {/* User info */}
+          {userEmail && (
+            <>
+              <span className="user-info">{userEmail}</span>
+              <button className="logout-btn" onClick={onLogout}>Salir</button>
+            </>
+          )}
         </div>
-
-        <div className="tog">
-          {paises.map((p) => (
-            <button
-              key={p.id}
-              className={`togb ${p.cls} ${pais === p.id ? 'on' : ''}`}
-              onClick={() => setPais(p.id)}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        <span style={{ fontSize: 11, color: 'var(--t2)', marginLeft: 4 }}>{mesActual}</span>
-
-        {userShortName && (
-          <>
-            <span className="user-info">· {userShortName}</span>
-            <button className="logout-btn" onClick={onLogout} title="Cerrar sesión">
-              salir
-            </button>
-          </>
-        )}
-      </div>
-    </div>
+      </header>
+      
+      <UploadModal
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onSuccess={() => onUploadSuccess?.()}
+        suggestedMonth={nextMonth(mesActual)}
+      />
+    </>
   );
 }
