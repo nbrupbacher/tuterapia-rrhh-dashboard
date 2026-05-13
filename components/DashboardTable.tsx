@@ -50,11 +50,19 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
   }, []);
 
   const sorted = useMemo(() => {
+    // Orden custom para cuadrantes: A → B → C → D (mejor primero)
+    const cuadOrder: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
     return [...data].sort((a, b) => {
       const av = getSortValue(a, sortKey);
       const bv = getSortValue(b, sortKey);
-      if (av == null) return sortDir;
-      if (bv == null) return -sortDir;
+      // NULLS SIEMPRE al final, sin importar dirección
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      // Cuadrantes con orden A→D
+      if (sortKey === 'cuadrante') {
+        return ((cuadOrder[av as string] ?? 99) - (cuadOrder[bv as string] ?? 99)) * sortDir;
+      }
       if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv) * sortDir;
       return ((av as number) - (bv as number)) * sortDir;
     });
