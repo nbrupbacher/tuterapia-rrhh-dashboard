@@ -38,7 +38,7 @@ export default function DashboardPage() {
   const [pais, setPais] = useState<PaisFilter>('T');
   const [tab, setTab] = useState<TabKey>('T');
   const [filters, setFilters] = useState<FilterState>({
-    search: '', accionable: '', segmento: '', tendencia: '', senal: '',
+    search: '', accionable: '', segmento: '', tendencia: '', senal: '', cuadrante: '',
   });
   const [vidFilter, setVidFilter] = useState(false);
 
@@ -66,9 +66,15 @@ export default function DashboardPage() {
       // State mes actual
       const { data: stateRows } = await supabase.from('therapist_state').select('*').eq('month', latestMonth).limit(2000);
       // State mes anterior (para calcular deltas)
-      const { data: prevStateRows } = prevMonth
-        ? await supabase.from('therapist_state').select('score, gan_mes, ses_paciente_3m').eq('month', prevMonth).limit(2000)
-        : { data: [] };
+      let prevStateRows: { score: number | null; gan_mes: number | null; ses_paciente_3m: number | null }[] = [];
+      if (prevMonth) {
+        const { data } = await supabase
+          .from('therapist_state')
+          .select('score, gan_mes, ses_paciente_3m')
+          .eq('month', prevMonth)
+          .limit(2000);
+        prevStateRows = (data || []) as typeof prevStateRows;
+      }
       // Metrics actual + anterior
       const monthsToFetch = prevMonth ? [latestMonth, prevMonth] : [latestMonth];
       const { data: metricsRows } = await supabase.from('monthly_metrics').select('*').in('month', monthsToFetch).limit(5000);
@@ -76,8 +82,8 @@ export default function DashboardPage() {
       if (!mounted) return;
 
       // Calcular stats del mes anterior
-      if (prevStateRows && prevStateRows.length > 0) {
-        const ps = prevStateRows as any[];
+      if (prevStateRows.length > 0) {
+        const ps = prevStateRows;
         const scoreAvg = ps.reduce((s, r) => s + (Number(r.score) || 0), 0) / ps.length;
         const ganTotal = ps.reduce((s, r) => s + (Number(r.gan_mes) || 0), 0);
         const spValid = ps.filter(r => r.ses_paciente_3m && Number(r.ses_paciente_3m) > 0);
@@ -152,7 +158,7 @@ export default function DashboardPage() {
   function clearAllFilters() {
     setFilters({
       search: filters.search,
-      accionable: '', segmento: '', tendencia: '', senal: '',
+      accionable: '', segmento: '', tendencia: '', senal: '', cuadrante: '',
     });
     setVidFilter(false);
     setTab('T');
@@ -174,6 +180,7 @@ export default function DashboardPage() {
         if (filters.segmento && segmento(r.dias) !== filters.segmento) return false;
         if (filters.tendencia && r.tendencia !== filters.tendencia) return false;
         if (filters.senal && r.senal !== filters.senal) return false;
+        if (filters.cuadrante && r.cuadrante !== filters.cuadrante) return false;
         if (vidFilter && !r.videollamada) return false;
         return true;
       });
@@ -187,6 +194,7 @@ export default function DashboardPage() {
       accionable: filter.acc || '',
       segmento: '', tendencia: '',
       senal: filter.sen || '',
+      cuadrante: '',
     });
     setVidFilter(filter.vid || false);
     setTab(filter.tab ? (filter.tab as TabKey) : 'T');
@@ -199,7 +207,8 @@ const hayFiltrosActivos = useMemo(() => {
       filters.accionable !== '' ||
       filters.segmento !== '' ||
       filters.tendencia !== '' ||
-      filters.senal !== ''
+      filters.senal !== '' ||
+      filters.cuadrante !== ''
     );
   }, [tab, vidFilter, filters]);
 
