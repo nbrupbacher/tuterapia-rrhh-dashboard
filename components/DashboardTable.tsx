@@ -3,20 +3,9 @@
 import { useState, useMemo } from 'react';
 import type { TherapistView, View } from '@/lib/types';
 import {
-  colorScore,
-  colorSesPaciente,
-  colorHs,
-  colorZona,
-  colorDias,
-  segmento,
-  tendenciaBadge,
-  cuadranteBadge,
-  accionableBadge,
-  deltaBadge,
-  conversion,
-  rowClass,
-  usd,
-  ganHist,
+  colorScore, colorSesPaciente, colorHs, colorZona, colorDias,
+  segmento, tendenciaBadge, cuadranteBadge, accionableBadge,
+  deltaBadge, conversion, rowClass, usd, ganHist,
 } from '@/lib/helpers';
 
 interface DashboardTableProps {
@@ -27,7 +16,9 @@ interface DashboardTableProps {
 
 const PAGE_SIZE = 50;
 
-// Etiquetas cortas de mes (Mar / Feb)
+// SortKey amplio para columnas computadas
+type SortKey = keyof TherapistView | '_ganHist';
+
 function lblShort(month: string): string {
   if (!month || month === '—') return '—';
   const [yy, mm] = month.split('-').map(Number);
@@ -35,20 +26,23 @@ function lblShort(month: string): string {
   return meses[mm - 1] || '—';
 }
 
+// Función para obtener valor de sort de un row con cualquier clave (incluso computada)
+function getSortValue(r: TherapistView, key: SortKey): number | string | null {
+  if (key === '_ganHist') return ganHist(r);
+  const v = r[key];
+  return v as any;
+}
+
 export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) {
   const isPred = view === 'pred';
-  const [sortKey, setSortKey] = useState<keyof TherapistView>(isPred ? 'score' : 'sesMes');
+  const [sortKey, setSortKey] = useState<SortKey>(isPred ? 'score' : 'sesMes');
   const [sortDir, setSortDir] = useState<1 | -1>(-1);
   const [page, setPage] = useState(1);
 
-  // Inferir mes actual / anterior de los datos (para los headers Mar/Feb)
   const { mesActLbl, mesAntLbl } = useMemo(() => {
-    // Buscamos cualquier registro con sesMes != null y vemos el mes (no lo tenemos directo, lo más simple: tomar de currentMonth via window? No tenemos. Lo pasamos como prop sería ideal, pero para no romper API actual, derivamos)
-    // Como workaround, asumimos el último mes cargado y el anterior. El usuario lo verá bien si los meses están bien cargados.
-    // Mejor: hardcoded a partir de today
     const now = new Date();
-    const actDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); // Mes pasado
-    const antDate = new Date(now.getFullYear(), now.getMonth() - 2, 1); // Antepasado
+    const actDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const antDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
     return {
       mesActLbl: lblShort(`${actDate.getFullYear()}-${String(actDate.getMonth() + 1).padStart(2, '0')}`),
       mesAntLbl: lblShort(`${antDate.getFullYear()}-${String(antDate.getMonth() + 1).padStart(2, '0')}`),
@@ -57,8 +51,8 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
 
   const sorted = useMemo(() => {
     return [...data].sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
+      const av = getSortValue(a, sortKey);
+      const bv = getSortValue(b, sortKey);
       if (av == null) return sortDir;
       if (bv == null) return -sortDir;
       if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv) * sortDir;
@@ -71,13 +65,13 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
   const currentPage = Math.min(page, pages);
   const slice = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-  function handleSort(key: keyof TherapistView) {
+  function handleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === 1 ? -1 : 1));
     else { setSortKey(key); setSortDir(-1); }
     setPage(1);
   }
 
-  function SortableTh({ k, cls, children }: { k: keyof TherapistView; cls?: string; children: React.ReactNode }) {
+  function SortableTh({ k, cls, children }: { k: SortKey; cls?: string; children: React.ReactNode }) {
     return (
       <th className={`${cls || ''} ${sortKey === k ? 'ths' : ''}`} onClick={() => handleSort(k)}>
         {children}
@@ -118,9 +112,9 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                   <PlainTh cls="c-cv">Conv.</PlainTh>
                   <SortableTh k="regTotalHist" cls="c-rt">Reg.total</SortableTh>
                   <SortableTh k="sesPaciente3m" cls="c-sp">Prom.ses 3m</SortableTh>
-                  <SortableTh k="diasSinSesion" cls="c-ul">Últ.ses.</SortableTh>
+                  <SortableTh k="ultimaSesion" cls="c-ul">Últ.ses.</SortableTh>
                   <SortableTh k="hs" cls="c-hs">Hs.</SortableTh>
-                  <PlainTh cls="c-gh">Gan.hist.</PlainTh>
+                  <SortableTh k="_ganHist" cls="c-gh">Gan.hist.</SortableTh>
                   <SortableTh k="ganMes" cls="c-gm">Gan. {mesActLbl}</SortableTh>
                 </>
               )}
@@ -160,10 +154,10 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
               // VIEW = anal
               const tBadge = tendenciaBadge(r.tendencia);
               const sp = r.sesPaciente3m || 0;
-              const dt = deltaBadge(r.pacMes, r.pacAnt);
+              const dtPac = deltaBadge(r.pacMes, r.pacAnt);
+              const dtSes = deltaBadge(r.sesMes, r.sesAnt);
               const conv = conversion(r.pacMes, r.pacAnt, r.regMes);
               const gh = ganHist(r);
-              const dsColor = colorDias(r.diasSinSesion);
               const hsVal = r.hs || 0;
               const hsPct = Math.min(100, Math.round(hsVal / 40 * 100));
 
@@ -181,21 +175,41 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                   </td>
                   <td className="c-t"><span className={`ts ${tBadge.cls}`}>{tBadge.label}</span></td>
                   <td className="c-sg"><span className="b bn">{segmento(r.dias)}</span></td>
-                  <td className="c-se tm">{r.sesMes != null ? r.sesMes : '—'}</td>
+                  {/* Sesiones del mes con delta vs mes anterior */}
+                  <td className="c-se tm">
+                    {r.sesMes != null ? (
+                      <>
+                        <span>{r.sesMes}</span>
+                        {dtSes && <span className={`dp ${dtSes.cls}`} style={{ marginLeft: 4 }}>{dtSes.label}</span>}
+                      </>
+                    ) : '—'}
+                  </td>
+                  {/* Pacientes mes anterior */}
                   <td className="c-pp tm" style={{ color: 'var(--t2)' }}>{r.pacAnt != null ? r.pacAnt : '—'}</td>
+                  {/* Pacientes del mes con delta */}
                   <td className="c-pa tm">
                     {r.pacMes != null ? (
                       <>
                         <span style={{ color: 'var(--v)' }}>{r.pacMes}</span>
-                        {dt && <span className={`dp ${dt.cls}`} style={{ marginLeft: 4 }}>{dt.label}</span>}
+                        {dtPac && <span className={`dp ${dtPac.cls}`} style={{ marginLeft: 4 }}>{dtPac.label}</span>}
                       </>
                     ) : '—'}
                   </td>
+                  {/* Reg del mes */}
                   <td className="c-rm tm">{r.regMes != null ? r.regMes : '—'}</td>
-                  <td className="c-cv tm" style={{ color: conv.color }}>{conv.value !== null ? `${conv.value}%` : '—'}</td>
+                  {/* Conversión (con base solo si hay datos) */}
+                  <td className="c-cv tm" style={{ color: r.pacAnt == null ? 'var(--t3)' : conv.color }}>
+                    {r.pacAnt == null ? '—' : conv.value !== null ? `${conv.value}%` : '—'}
+                  </td>
+                  {/* Reg.total histórico */}
                   <td className="c-rt tm" style={{ color: 'var(--t2)' }}>{r.regTotalHist || '—'}</td>
+                  {/* Prom.ses 3m */}
                   <td className="c-sp tm" style={{ color: colorSesPaciente(sp) }}>{sp ? sp.toFixed(1) : '—'}</td>
-                  <td className="c-ul tm" style={{ color: dsColor }}>{r.diasSinSesion != null ? `${r.diasSinSesion}d` : '—'}</td>
+                  {/* Última sesión: días */}
+                  <td className="c-ul tm" style={{ color: colorDias(r.diasSinSesion) }}>
+                    {r.diasSinSesion != null ? `${r.diasSinSesion}d` : '—'}
+                  </td>
+                  {/* Horas */}
                   <td className="c-hs">
                     <div className="hb">
                       <div className="hbg">
@@ -204,7 +218,9 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                       <span className="tm" style={{ color: colorHs(hsVal) }}>{hsVal}h</span>
                     </div>
                   </td>
+                  {/* Ganancia histórica (ordenable) */}
                   <td className={`c-gh ${gh >= 0 ? 'gp' : 'gn'}`}>{usd(gh)}</td>
+                  {/* Ganancia del mes */}
                   <td className={`c-gm ${r.ganMes == null ? 'g0' : r.ganMes >= 0 ? 'gp' : 'gn'}`}>{usd(r.ganMes)}</td>
                 </tr>
               );
