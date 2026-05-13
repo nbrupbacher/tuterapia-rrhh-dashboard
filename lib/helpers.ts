@@ -155,3 +155,23 @@ export function formatDeltaAbs(actual: number, anterior: number | null, formatte
     icon: diff > 0 ? '↑' : '↓',
   };
 }
+
+export function formatDeltaMoney(actual: number, anterior: number | null): Delta | null {
+  if (anterior == null) return null;
+  const diff = actual - anterior;
+  if (Math.abs(diff) < 1) return { label: 'USD 0', color: 'var(--t3)', icon: '→' };
+  const abs = Math.abs(diff).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  return {
+    label: `${diff > 0 ? '+' : '−'}USD ${abs}`,
+    color: diff > 0 ? 'var(--v)' : 'var(--r)',
+    icon: diff > 0 ? '↑' : '↓',
+  };
+}
+
+// Formatear fecha YYYY-MM-DD como DD/MM
+export function formatFecha(s: string | null): string {
+  if (!s) return '—';
+  const parts = s.split('-');
+  if (parts.length !== 3) return '—';
+  return `${parts[2]}/${parts[1]}`;
+}
