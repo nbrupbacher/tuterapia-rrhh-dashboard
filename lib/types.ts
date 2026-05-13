@@ -100,3 +100,14 @@ export interface TherapistView {
   sesAnt: number | null;
   regAnt: number | null;
 }
+
+
+// Estado de filtros del UI
+export interface FilterState {
+  search: string;
+  accionable: string;
+  segmento: string;
+  tendencia: string;
+  senal: string;
+  cuadrante: string;
+}
