@@ -1,72 +1,79 @@
 'use client';
 
-export interface FilterState {
-  search: string;
-  accionable: string;
-  segmento: string;
-  tendencia: string;
-  senal: string;
-}
+import type { FilterState } from '@/lib/types';
 
-interface TableFiltersProps {
+// Re-export para mantener compatibilidad con importaciones que vienen de aquí
+export type { FilterState };
+
+interface Props {
   filters: FilterState;
   setFilters: (f: FilterState) => void;
   count: number;
 }
 
-export function TableFilters({ filters, setFilters, count }: TableFiltersProps) {
-  const set = (key: keyof FilterState, value: string) =>
+export function TableFilters({ filters, setFilters, count }: Props) {
+  function update<K extends keyof FilterState>(key: K, value: FilterState[K]) {
     setFilters({ ...filters, [key]: value });
+  }
 
   return (
     <div className="ctr">
       <div className="sw">
-        <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="11" cy="11" r="8" />
-          <path d="M21 21l-4.35-4.35" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
         <input
           className="si"
-          placeholder="Buscar…"
+          placeholder="Buscar terapeuta..."
           value={filters.search}
-          onChange={(e) => set('search', e.target.value)}
+          onChange={(e) => update('search', e.target.value)}
         />
       </div>
 
-      <select value={filters.accionable} onChange={(e) => set('accionable', e.target.value)}>
-        <option value="">Accionable</option>
-        <option value="irrecuperable">Irrecuperable</option>
-        <option value="revisar_urgente">Revisar urgente</option>
-        <option value="dejar_mostrar">Fantasmear</option>
-        <option value="potenciar">Potenciar</option>
-        <option value="retencion">Retención</option>
-        <option value="cancelaciones">Cancelaciones</option>
-        <option value="disponibilidad">Disponibilidad</option>
-        <option value="monitorear">Monitorear</option>
+      <select value={filters.accionable} onChange={(e) => update('accionable', e.target.value)}>
+        <option value="">Accionable: todos</option>
+        <option value="irrecuperable">⛔ Irrecuperable</option>
+        <option value="revisar_urgente">🔴 Revisar urgente</option>
+        <option value="dejar_mostrar">👻 Fantasmear</option>
+        <option value="potenciar">↑ Potenciar</option>
+        <option value="retencion">⚑ Retención</option>
+        <option value="cancelaciones">⚠ Cancelaciones</option>
+        <option value="disponibilidad">△ Disponibilidad</option>
+        <option value="monitorear">○ Monitorear</option>
       </select>
 
-      <select value={filters.segmento} onChange={(e) => set('segmento', e.target.value)}>
-        <option value="">Segmento</option>
-        <option>Nuevo</option>
-        <option>Junior</option>
-        <option>Semi Sr</option>
-        <option>Senior</option>
+      <select value={filters.cuadrante} onChange={(e) => update('cuadrante', e.target.value)}>
+        <option value="">Predicción: todas</option>
+        <option value="A">A · Alto valor</option>
+        <option value="B">B · Riesgo oculto</option>
+        <option value="C">C · Potencial</option>
+        <option value="D">D · Intervención</option>
       </select>
 
-      <select value={filters.tendencia} onChange={(e) => set('tendencia', e.target.value)}>
-        <option value="">Tendencia</option>
-        <option value="subiendo">Subiendo</option>
-        <option value="estable">Estable</option>
-        <option value="bajando">Bajando</option>
-        <option value="arrancando">Arrancando</option>
-        <option value="sin actividad">Sin actividad</option>
+      <select value={filters.tendencia} onChange={(e) => update('tendencia', e.target.value)}>
+        <option value="">Tendencia: todas</option>
+        <option value="subiendo">↑ Sube</option>
+        <option value="bajando">↓ Baja</option>
+        <option value="estable">→ Estable</option>
+        <option value="arrancando">~ Arranca</option>
+        <option value="sin actividad">∅ Sin act.</option>
       </select>
 
-      <select value={filters.senal} onChange={(e) => set('senal', e.target.value)}>
-        <option value="">Señal</option>
-        <option value="arrancando_bien">Arrancando bien</option>
-        <option value="alerta_arranque">Alerta arranque</option>
-        <option value="abandono">Abandono</option>
+      <select value={filters.segmento} onChange={(e) => update('segmento', e.target.value)}>
+        <option value="">Segmento: todos</option>
+        <option value="Nuevo">Nuevo</option>
+        <option value="Junior">Junior</option>
+        <option value="Semi Sr">Semi Sr</option>
+        <option value="Senior">Senior</option>
+      </select>
+
+      <select value={filters.senal} onChange={(e) => update('senal', e.target.value)}>
+        <option value="">Señal: todas</option>
+        <option value="recien_ingresado">🆕 Recién ingresado</option>
+        <option value="arrancando_bien">🚀 Arrancando bien</option>
+        <option value="alerta_arranque">⚠ Alerta arranque</option>
+        <option value="abandono">💔 Abandono</option>
       </select>
 
       <span className="cnt">{count} terapeutas</span>
