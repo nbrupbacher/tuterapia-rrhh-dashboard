@@ -1,7 +1,11 @@
 'use client';
 
 import type { TherapistView } from '@/lib/types';
-import { formatDelta, formatDeltaAbs, usd, colorScore, colorSesPaciente } from '@/lib/helpers';
+import {
+  formatDeltaAbs, formatDeltaMoney, usd,
+  colorScore, colorSesPaciente,
+  type Delta,
+} from '@/lib/helpers';
 
 interface PrevStats {
   scoreAvg: number | null;
@@ -22,8 +26,11 @@ export function KpiDeltas({ data, prevStats }: Props) {
   const spValid = data.filter(t => t.sesPaciente3m > 0);
   const spAvg = spValid.length ? spValid.reduce((s, t) => s + t.sesPaciente3m, 0) / spValid.length : 0;
 
-  const scoreDelta = formatDelta(scoreAvg, prevStats.scoreAvg);
-  const ganDelta = formatDelta(ganTotal, prevStats.ganTotal);
+  // Score: delta absoluto en puntos
+  const scoreDelta = formatDeltaAbs(scoreAvg, prevStats.scoreAvg, (n) => `${n > 0 ? '+' : ''}${n.toFixed(0)} pts`);
+  // Ganancia: delta en plata (USD)
+  const ganDelta = formatDeltaMoney(ganTotal, prevStats.ganTotal);
+  // Prom.ses: delta absoluto en valor
   const spDelta = formatDeltaAbs(spAvg, prevStats.spAvg, (n) => n.toFixed(2));
 
   return (
@@ -58,11 +65,10 @@ interface DeltaCardProps {
   label: string;
   value: string;
   valueColor: string;
-  delta: { label: string; color: string; icon: string } | null;
+  delta: Delta | null;
 }
 
 function DeltaCard({ label, value, valueColor, delta }: DeltaCardProps) {
-  // Card sin onClick → cursor default
   return (
     <div className="k" style={{ cursor: 'default' }}>
       <div className="kv" style={{ color: valueColor }}>{value}</div>
