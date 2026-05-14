@@ -20,8 +20,11 @@ import type {
 interface PrevStats {
   scoreAvg: number | null;
   ganTotal: number | null;
-  spAvg: number | null;
+  spAvgMes: number | null;   // sp mensual del mes anterior (no 3m)
 }
+
+type PrevStatsByPais = Record<PaisFilter, PrevStats>;
+const EMPTY_PREV_STATS: PrevStats = { scoreAvg: null, ganTotal: null, spAvgMes: null };
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -31,7 +34,9 @@ export default function DashboardPage() {
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
   const [therapists, setTherapists] = useState<TherapistView[]>([]);
   const [currentMonth, setCurrentMonth] = useState<string>('—');
-  const [prevStats, setPrevStats] = useState<PrevStats>({ scoreAvg: null, ganTotal: null, spAvg: null });
+  const [prevStatsByPais, setPrevStatsByPais] = useState<PrevStatsByPais>({
+    T: EMPTY_PREV_STATS, AR: EMPTY_PREV_STATS, UY: EMPTY_PREV_STATS,
+  });
   const [selectedTherapist, setSelectedTherapist] = useState<TherapistView | null>(null);
 
   const [view, setView] = useState<View>('pred');
@@ -66,11 +71,11 @@ export default function DashboardPage() {
       // State mes actual
       const { data: stateRows } = await supabase.from('therapist_state').select('*').eq('month', latestMonth).limit(2000);
       // State mes anterior (para calcular deltas)
-      let prevStateRows: { score: number | null; gan_mes: number | null; ses_paciente_3m: number | null }[] = [];
+      let prevStateRows: { therapist_id: string; score: number | null; gan_mes: number | null; ses_paciente_3m: number | null }[] = [];
       if (prevMonth) {
         const { data } = await supabase
           .from('therapist_state')
-          .select('score, gan_mes, ses_paciente_3m')
+          .select('therapist_id, score, gan_mes, ses_paciente_3m')
           .eq('month', prevMonth)
           .limit(2000);
         prevStateRows = (data || []) as typeof prevStateRows;
@@ -81,14 +86,40 @@ export default function DashboardPage() {
 
       if (!mounted) return;
 
-      // Calcular stats del mes anterior
-      if (prevStateRows.length > 0) {
-        const ps = prevStateRows;
-        const scoreAvg = ps.reduce((s, r) => s + (Number(r.score) || 0), 0) / ps.length;
-        const ganTotal = ps.reduce((s, r) => s + (Number(r.gan_mes) || 0), 0);
-        const spValid = ps.filter(r => r.ses_paciente_3m && Number(r.ses_paciente_3m) > 0);
-        const spAvg = spValid.length ? spValid.reduce((s, r) => s + Number(r.ses_paciente_3m), 0) / spValid.length : 0;
-        setPrevStats({ scoreAvg, ganTotal, spAvg });
+      // Calcular stats del mes anterior POR PAÍS
+      if (prevStateRows.length > 0 && thRows) {
+        // Map therapist_id → pais
+        const paisMap = new Map<string, 'AR' | 'UY'>(
+          (thRows as TherapistRow[]).map(t => [t.id, t.pais])
+        );
+        // Datos de monthly_metrics del mes anterior con id (para sp mensual)
+        const prevMetricsList = (metricsRows || []).filter((m: MonthlyMetricsRow) => m.month === prevMonth);
+        
+        function computeFor(filter: PaisFilter): PrevStats {
+          const ps = prevStateRows.filter((r: any) =>
+            filter === 'T' || paisMap.get(r.therapist_id) === filter
+          );
+          const pm = prevMetricsList.filter((m: MonthlyMetricsRow) =>
+            filter === 'T' || paisMap.get(m.therapist_id) === filter
+          );
+          if (!ps.length) return EMPTY_PREV_STATS;
+          const scoreAvg = ps.reduce((s, r: any) => s + (Number(r.score) || 0), 0) / ps.length;
+          const ganTotal = ps.reduce((s, r: any) => s + (Number(r.gan_mes) || 0), 0);
+          // sp mensual = total sesiones / total pacientes (no promedio de promedios)
+          const totSes = pm.reduce((s, m) => s + (Number(m.sesiones_totales) || 0), 0);
+          const totPac = pm.reduce((s, m) => s + (Number(m.pacientes_unicos) || 0), 0);
+          const spAvgMes = totPac > 0 ? totSes / totPac : null;
+          return { scoreAvg, ganTotal, spAvgMes };
+        }
+        
+        // Necesito el id del state row para mappear. La query original era:
+        //   .select('score, gan_mes, ses_paciente_3m')
+        // Necesito agregar therapist_id. Lo hago abajo.
+        setPrevStatsByPais({
+          T: computeFor('T'),
+          AR: computeFor('AR'),
+          UY: computeFor('UY'),
+        });
       }
 
       const stateMap = new Map<string, TherapistStateRow>(
@@ -232,7 +263,7 @@ const hayFiltrosActivos = useMemo(() => {
           <>
             <KpiDeltas
               data={therapists.filter(t => pais === 'T' || t.pais === pais)}
-              prevStats={prevStats}
+              prevStats={prevStatsByPais[pais]}
             />
             <KpiSections data={therapists} pais={pais} onKpiClick={handleKpiClick} />
             <TableTabs tab={tab} setTab={setTab} />
