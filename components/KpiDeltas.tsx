@@ -10,7 +10,7 @@ import {
 interface PrevStats {
   scoreAvg: number | null;
   ganTotal: number | null;
-  spAvg: number | null;
+  spAvgMes: number | null;
 }
 
 interface Props {
@@ -23,15 +23,16 @@ export function KpiDeltas({ data, prevStats }: Props) {
 
   const scoreAvg = data.reduce((s, t) => s + t.score, 0) / data.length;
   const ganTotal = data.reduce((s, t) => s + (t.ganMes || 0), 0);
-  const spValid = data.filter(t => t.sesPaciente3m > 0);
-  const spAvg = spValid.length ? spValid.reduce((s, t) => s + t.sesPaciente3m, 0) / spValid.length : 0;
+  
+  // Prom. sesiones/paciente MENSUAL = total sesiones del mes / total pacientes del mes
+  // (no promedio de promedios, evita sesgo por terapeutas con 1 paciente)
+  const totSes = data.reduce((s, t) => s + (t.sesMes ?? 0), 0);
+  const totPac = data.reduce((s, t) => s + (t.pacMes ?? 0), 0);
+  const spMensual = totPac > 0 ? totSes / totPac : 0;
 
-  // Score: delta absoluto en puntos
   const scoreDelta = formatDeltaAbs(scoreAvg, prevStats.scoreAvg, (n) => `${n > 0 ? '+' : ''}${n.toFixed(0)} pts`);
-  // Ganancia: delta en plata (USD)
   const ganDelta = formatDeltaMoney(ganTotal, prevStats.ganTotal);
-  // Prom.ses: delta absoluto en valor
-  const spDelta = formatDeltaAbs(spAvg, prevStats.spAvg, (n) => n.toFixed(2));
+  const spDelta = formatDeltaAbs(spMensual, prevStats.spAvgMes, (n) => n.toFixed(2));
 
   return (
     <>
@@ -50,9 +51,9 @@ export function KpiDeltas({ data, prevStats }: Props) {
           delta={ganDelta}
         />
         <DeltaCard
-          label="Prom. ses/paciente 3m"
-          value={spAvg.toFixed(2)}
-          valueColor={colorSesPaciente(spAvg)}
+          label="Prom. ses/paciente"
+          value={spMensual.toFixed(2)}
+          valueColor={colorSesPaciente(spMensual)}
           delta={spDelta}
         />
       </div>
