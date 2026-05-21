@@ -1,9 +1,13 @@
 // Tipos del dominio. Coinciden con el schema de Supabase.
 
+import type { SituacionId, AccionId } from './constants-matrix';
+import type { AccionPendiente } from './actions';
+
 export type Pais = 'AR' | 'UY';
 export type View = 'pred' | 'anal' | 'prog';
 export type PaisFilter = 'T' | 'AR' | 'UY';
-export type TabKey = 'T' | 'IRR' | 'OC' | 'NUE' | 'SEG45';
+// MODIFICADO PR2: tabs nuevos. IRR/OC/SEG45 removidos, CRIT/V45/DEST agregados.
+export type TabKey = 'T' | 'CRIT' | 'V45' | 'DEST' | 'NUE';
 
 export type Tendencia = 'subiendo' | 'estable' | 'bajando' | 'arrancando' | 'sin actividad';
 export type Cuadrante = 'A' | 'B' | 'C' | 'D';
@@ -32,9 +36,12 @@ export interface TherapistStateRow {
   zona: 'Verde' | 'Amarillo' | 'Rojo' | null;
   cuadrante: Cuadrante | null;
   tendencia: Tendencia | null;
-  irrecuperable: boolean;
-  senal: string | null;
-  accionable: string;
+  // MODIFICADO PR2: removidos accionable, senal, irrecuperable
+  // Agregados: situaciones, accion, acciones_pendientes, meses_en_situacion
+  situaciones: SituacionId[];
+  accion: AccionId;
+  acciones_pendientes: AccionPendiente[];
+  meses_en_situacion: Record<string, number>;
   ses_paciente_3m: number | null;
   gan_mes: number | null;
   dias_sin_sesion: number | null;
@@ -73,14 +80,19 @@ export interface TherapistView {
   sesionesHist: number;
   pacientesHist: number;
 
-  // De therapist_state del mes actual
+  // Capa Predicción (sin cambios)
   score: number;
   zona: 'Verde' | 'Amarillo' | 'Rojo';
   cuadrante: Cuadrante;
   tendencia: Tendencia;
-  irrecuperable: boolean;
-  senal: string | null;
-  accionable: string;
+
+  // Capa Matrix (NUEVO PR2)
+  situaciones: SituacionId[];
+  accion: AccionId;
+  accionesPendientes: AccionPendiente[];
+  mesesEnSituacion: Record<string, number>;
+
+  // Métricas
   sesPaciente3m: number;
   ganMes: number;
   diasSinSesion: number | null;
@@ -103,11 +115,13 @@ export interface TherapistView {
 
 
 // Estado de filtros del UI
+// MODIFICADO PR2: 'accionable' renombrado a 'accion', 'senal' removido,
+// agregada 'situacion'
 export interface FilterState {
   search: string;
-  accionable: string;
+  accion: string;
+  situacion: string;
   segmento: string;
   tendencia: string;
-  senal: string;
   cuadrante: string;
 }
