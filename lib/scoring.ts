@@ -1,7 +1,13 @@
 // Lógica de scoring portada de Python. Calcula state para un mes
 // dado los datos actuales y los 2 meses anteriores.
+//
+// MODIFICADO PR2: en lugar de calcular `accionable` (modelo viejo)
+// ahora calcula `situaciones` (array) + `accion` (string) + lógica temporal.
 
 import type { Pais, Cuadrante, Tendencia } from './types';
+import type { SituacionId, AccionId } from './constants-matrix';
+import { detectarSituaciones } from './situations';
+import { calcularAcciones, type AccionPendiente } from './actions';
 
 const TARIFAS: Record<Pais, { s: number; r: number }> = {
   AR: { s: 5.5, r: 1.5 },
@@ -9,7 +15,6 @@ const TARIFAS: Record<Pais, { s: number; r: number }> = {
 };
 const MED: Record<Pais, number> = { AR: 16, UY: 124 };
 const TSA: Record<Pais, number> = { AR: 0.094, UY: 0.161 };
-const UBR: Record<Pais, number> = { AR: 32, UY: 19 };
 
 export interface MonthData {
   sm: number; pm: number; rm: number;
@@ -17,18 +22,25 @@ export interface MonthData {
 }
 
 export interface ScoreResult {
+  // Capa Predicción (sin cambios)
   score: number;
   zona: 'Verde' | 'Amarillo' | 'Rojo';
   cuadrante: Cuadrante;
   tendencia: Tendencia;
-  irrecuperable: boolean;
-  senal: string | null;
-  accionable: string;
+
+  // Capa Matrix (NUEVO)
+  situaciones: SituacionId[];
+  accion: AccionId;
+  acciones_pendientes: AccionPendiente[];
+  meses_en_situacion: Record<string, number>;
+
+  // Métricas calculadas (sin cambios)
   ses_paciente_3m: number;
   gan_mes: number;
   reg_3m: number;
   tasa_cancel: number;
   videollamada: boolean;
+  dias_sin_sesion: number | null;
 }
 
 export function calcScore(
@@ -37,19 +49,22 @@ export function calcScore(
   cur: MonthData,
   prev: MonthData | null,
   prev2: MonthData | null,
+  // NUEVO: contador del mes anterior por terapeuta (para lógica temporal)
+  mesesEnSituacionPrevio: Record<string, number> = {},
+  diasSinSesion: number | null = null,
 ): ScoreResult {
   const cv = TARIFAS[pais];
   const { sm, pm, rm } = cur;
   const hs = cur.hs ?? 0;
-  
-  // Window 3m
+
+  // ============ Ventana 3m ============
   const sT = sm + (prev?.sm ?? 0) + (prev2?.sm ?? 0);
   const pT = pm + (prev?.pm ?? 0) + (prev2?.pm ?? 0);
   const rT = rm + (prev?.rm ?? 0) + (prev2?.rm ?? 0);
   const sp3 = pT > 0 ? Math.round((sT / pT) * 100) / 100 : 0;
   const gm = Math.round((sm * cv.s - rm * cv.r) * 100) / 100;
-  
-  // Tendencia
+
+  // ============ Tendencia ============
   const sE = prev2?.sm ?? prev?.sm ?? null;
   let tend: Tendencia;
   if (sE === null) tend = sm > 0 ? 'arrancando' : 'sin actividad';
@@ -58,46 +73,23 @@ export function calcScore(
   else if (sm >= sE * 1.2) tend = 'subiendo';
   else if (sm <= sE * 0.8) tend = 'bajando';
   else tend = 'estable';
-  
-  // Cuadrante
+
+  // ============ Cuadrante ============
   let cuad: Cuadrante = 'D';
   if (sm > 0 && pm > 0) {
     const alt = gm >= MED[pais];
     const cal = sp3 >= 2.0;
     cuad = alt && cal ? 'A' : (alt ? 'B' : (cal ? 'C' : 'D'));
   }
-  
-  // Diferencial <30 días
+
   const esRecien = diasPlat < 30;
-  const irr = esRecien ? false : (
-    (sm === 0 && tend === 'sin actividad') ||
-    (sm === 0 && pm === 0 && tend === 'bajando')
-  );
-  
-  // Tasa cancel
+
+  // ============ Tasa cancel ============
   const cr = cur.ses_creadas ?? 0;
   const ca = cur.ses_canc ?? 0;
   const tc = cr > 0 ? Math.min(ca / cr, 1) : 0;
-  
-  // Accionable
-  const bn = TSA[pais];
-  const ub = UBR[pais];
-  const pE = prev?.pm ?? 0;
-  const dp = pm - pE;
-  const tr2 = rT >= ub ? dp / rT : null;
-  
-  let acc: string;
-  if (esRecien) acc = 'monitorear';
-  else if (irr) acc = 'irrecuperable';
-  else if (rT >= ub && dp < 0) acc = 'revisar_urgente';
-  else if (tr2 !== null && tr2 < bn * 0.5) acc = 'dejar_mostrar';
-  else if (cuad === 'A' && tend === 'subiendo') acc = 'potenciar';
-  else if (sp3 > 0 && sp3 < 2.0) acc = 'retencion';
-  else if (tc > 0.2) acc = 'cancelaciones';
-  else if (!hs) acc = 'disponibilidad';
-  else acc = 'monitorear';
-  
-  // Score
+
+  // ============ Score ============
   let score: number;
   if (esRecien) {
     let penal = 0;
@@ -120,27 +112,50 @@ export function calcScore(
     if (hs === 0) penal += 8;
     score = Math.max(0, 100 - Math.min(penal, 100));
   }
-  
-  const zona: 'Verde' | 'Amarillo' | 'Rojo' = 
+
+  // ============ Zona ============
+  const zona: 'Verde' | 'Amarillo' | 'Rojo' =
     esRecien ? (score >= 70 ? 'Verde' : 'Amarillo') :
     (score >= 70 ? 'Verde' : score >= 45 ? 'Amarillo' : 'Rojo');
-  
-  // Señal
-  let senal: string | null = null;
-  if (esRecien) senal = 'recien_ingresado';
-  else if (diasPlat <= 180) {
-    if (sm === 0 && (tend === 'sin actividad' || tend === 'bajando')) senal = 'abandono';
-    else if (tend === 'subiendo' && sm >= 3) senal = 'arrancando_bien';
-    else if (sm <= 3 && (tend === 'arrancando' || tend === 'bajando')) senal = 'alerta_arranque';
-  }
-  
-  const videollamada = (diasPlat >= 45 && diasPlat <= 55) && (zona === 'Rojo' || zona === 'Amarillo');
-  
+
+  // ============ MATRIX (NUEVO) ============
+  const situaciones = detectarSituaciones({
+    diasPlataforma: diasPlat,
+    pais,
+    score,
+    cuadrante: cuad,
+    tendencia: tend,
+    sesPaciente3m: sp3,
+    tasaCancel: tc,
+    diasSinSesion,
+    sesMes: sm,
+    pacMes: pm,
+    regMes: rm,
+    hsDisponibles: hs,
+    pacAnt: prev?.pm ?? null,
+    regAnt: prev?.rm ?? null,
+    sesAnt: prev?.sm ?? null,
+    benchmarkConversionPais: TSA[pais],
+  });
+
+  const resultadoAcciones = calcularAcciones(situaciones, mesesEnSituacionPrevio);
+
+  // ============ Videollamada ============
+  // Se mantiene del modelo viejo: bandera para terapeutas en ventana 45-55 con problemas
+  const videollamada = (diasPlat >= 45 && diasPlat <= 55) &&
+                        (zona === 'Rojo' || zona === 'Amarillo');
+
   return {
     score, zona, cuadrante: cuad, tendencia: tend,
-    irrecuperable: irr, senal, accionable: acc,
-    ses_paciente_3m: sp3, gan_mes: gm, reg_3m: rT,
+    situaciones,
+    accion: resultadoAcciones.accion,
+    acciones_pendientes: resultadoAcciones.accionesPendientes,
+    meses_en_situacion: resultadoAcciones.mesesEnSituacionActualizado,
+    ses_paciente_3m: sp3,
+    gan_mes: gm,
+    reg_3m: rT,
     tasa_cancel: Math.round(tc * 10000) / 10000,
     videollamada,
+    dias_sin_sesion: diasSinSesion,
   };
 }
