@@ -5,10 +5,9 @@ import type { TherapistView } from '@/lib/types';
 import {
   colorScore, colorSesPaciente, segmento,
   cuadranteBadge, situacionBadge, accionBadge,
-  ordenarSituacionesPorGravedad,
   usd, ganHist,
 } from '@/lib/helpers';
-import { ACCION_INMEDIATA, ACCION_TEMPORAL, ACCIONES } from '@/lib/constants-matrix';
+import { ACCION_INMEDIATA, ACCION_TEMPORAL, ordenarSituacionesPorGravedad } from '@/lib/constants-matrix';
 import { PDESC } from '@/lib/constants';
 import { fetchNotes, addNote, deleteNote, type Note } from '@/lib/notes';
 
