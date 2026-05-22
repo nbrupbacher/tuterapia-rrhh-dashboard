@@ -190,14 +190,27 @@ function esPierdePacientesNetos(d: DetectarInput): boolean {
 }
 
 function esRecibeNoConvierte(d: DetectarInput): boolean {
-  // Recibe registros pero conversión < 50% del benchmark del país
-  if (d.regMes === 0) return false;
-  // Conversión aproximada: pacientes nuevos del mes / registros del mes
-  // Pacientes nuevos los aproximamos como max(pacMes - pacAnt, 0) cuando hay pacAnt
-  const pacAnt = d.pacAnt ?? 0;
-  const nuevosPacientes = Math.max(0, d.pacMes - pacAnt);
-  const conversion = nuevosPacientes / d.regMes;
-  return conversion < (d.benchmarkConversionPais * 0.5);
+  // Necesitamos historial del mes anterior para juzgar conversión.
+  // Si es nuevo (sin mes anterior), no aplica esta situación.
+  if (d.regAnt == null || d.pacAnt == null) return false;
+
+  // Necesitamos registros en ambos meses para que el ratio sea significativo
+  if (d.regMes === 0 || d.regAnt === 0) return false;
+
+  // Conversión del mes actual: pacientes nuevos / registros del mes
+  const nuevosMesActual = Math.max(0, d.pacMes - d.pacAnt);
+  const conversionMesActual = nuevosMesActual / d.regMes;
+
+  // Conversión del mes anterior: aproximada como pacAnt / regAnt
+  const conversionMesAnt = d.pacAnt / d.regAnt;
+
+  // Promedio simple de las dos conversiones
+  const conversionPromedio = (conversionMesActual + conversionMesAnt) / 2;
+
+  // Threshold: 70% del benchmark del país
+  // AR: 0.094 × 0.7 = 0.0658 (6.58%)
+  // UY: 0.161 × 0.7 = 0.1127 (11.27%)
+  return conversionPromedio < (d.benchmarkConversionPais * 0.7);
 }
 
 
