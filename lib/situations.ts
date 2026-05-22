@@ -200,6 +200,7 @@ function esRecibeNoConvierte(d: DetectarInput): boolean {
   return conversion < (d.benchmarkConversionPais * 0.5);
 }
 
+
 function esBajaRetencion(d: DetectarInput): boolean {
   return d.sesPaciente3m > 0 && d.sesPaciente3m < UMBRALES.BAJA_RETENCION_SES_PACIENTE;
 }
