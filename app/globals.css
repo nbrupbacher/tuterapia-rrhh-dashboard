@@ -200,3 +200,39 @@ td { padding:6px 8px; font-size:12px; white-space:nowrap; vertical-align:middle;
 @media(max-width:700px){.prog-grid{grid-template-columns:1fr}}
 .prog-card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}
 .prog-title{font-size:12px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
+
+/* ============================================================
+   MATRIX MODEL - PR 3
+   Badges de situación y acción, layout doble (multi-acción)
+   ============================================================ */
+
+/* === Columnas nuevas en la tabla === */
+.c-sit{width:235px}
+.c-acc{width:165px}
+
+/* === Tabs especiales === */
+.tab.tab-critico{color:#ff7676}
+.tab.tab-critico.on{color:#ff7676;border-bottom-color:#ff7676}
+
+/* === Badges de SITUACIÓN === */
+.sits{display:flex;flex-direction:column;gap:3px}
+.sit{display:inline-flex;align-items:center;gap:4px;padding:1px 6px;border-radius:20px;font-size:10px;font-weight:600;width:fit-content;max-width:100%}
+.sit-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.sit-r{background:rgba(240,82,82,.15);color:#ff7676;border:1px solid rgba(240,82,82,.4)}
+.sit-o{background:rgba(255,140,80,.13);color:#ffa872;border:1px solid rgba(255,140,80,.32)}
+.sit-y{background:rgba(245,166,35,.12);color:var(--am);border:1px solid rgba(245,166,35,.28)}
+.sit-b{background:rgba(79,142,247,.1);color:#6ba3f5;border:1px solid rgba(79,142,247,.25)}
+.sit-g{background:rgba(52,211,153,.12);color:var(--v);border:1px solid rgba(52,211,153,.25)}
+
+/* === Badges de ACCIÓN === */
+.acc{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:500;white-space:nowrap}
+.acc-multi{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.acc-pending{opacity:0.45;font-size:10px}
+
+.acc-evaluar{background:rgba(120,0,0,.25);color:#f87171;border:1px solid rgba(240,82,82,.4)}
+.acc-whatsapp{background:rgba(255,140,80,.1);color:#ffa872;border:1px solid rgba(255,140,80,.3)}
+.acc-meet{background:rgba(56,189,248,.12);color:#38bdf8;border:1px solid rgba(56,189,248,.3)}
+.acc-retencion{background:rgba(245,166,35,.1);color:var(--am);border:1px solid rgba(245,166,35,.25)}
+.acc-fantasmear{background:rgba(167,139,250,.1);color:var(--ar);border:1px solid rgba(167,139,250,.25)}
+.acc-destacado{background:rgba(52,211,153,.1);color:var(--v);border:1px solid rgba(52,211,153,.25)}
+.acc-continua{background:var(--bg3);color:var(--t3);border:1px solid var(--bd)}
