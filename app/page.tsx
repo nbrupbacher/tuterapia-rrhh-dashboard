@@ -12,6 +12,7 @@ import { DashboardTable } from '@/components/DashboardTable';
 import { TherapistModal } from '@/components/TherapistModal';
 import { ProgressView } from '@/components/ProgressView';
 import { segmento } from '@/lib/helpers';
+import type { AccionId, SituacionId } from '@/lib/constants-matrix';
 import type {
   View, PaisFilter, TabKey, TherapistView,
   TherapistRow, TherapistStateRow, MonthlyMetricsRow,
@@ -20,7 +21,7 @@ import type {
 interface PrevStats {
   scoreAvg: number | null;
   ganTotal: number | null;
-  spAvgMes: number | null;   // sp mensual del mes anterior (no 3m)
+  spAvgMes: number | null;
 }
 
 type PrevStatsByPais = Record<PaisFilter, PrevStats>;
@@ -42,10 +43,10 @@ export default function DashboardPage() {
   const [view, setView] = useState<View>('pred');
   const [pais, setPais] = useState<PaisFilter>('T');
   const [tab, setTab] = useState<TabKey>('T');
+  // FilterState NUEVO: accion + situacion (no más accionable/senal)
   const [filters, setFilters] = useState<FilterState>({
-    search: '', accionable: '', segmento: '', tendencia: '', senal: '', cuadrante: '',
+    search: '', accion: '', situacion: '', segmento: '', tendencia: '', cuadrante: '',
   });
-  const [vidFilter, setVidFilter] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -70,7 +71,7 @@ export default function DashboardPage() {
 
       // State mes actual
       const { data: stateRows } = await supabase.from('therapist_state').select('*').eq('month', latestMonth).limit(2000);
-      // State mes anterior (para calcular deltas)
+      // State mes anterior (para deltas)
       let prevStateRows: { therapist_id: string; score: number | null; gan_mes: number | null; ses_paciente_3m: number | null }[] = [];
       if (prevMonth) {
         const { data } = await supabase
@@ -80,21 +81,18 @@ export default function DashboardPage() {
           .limit(2000);
         prevStateRows = (data || []) as typeof prevStateRows;
       }
-      // Metrics actual + anterior
       const monthsToFetch = prevMonth ? [latestMonth, prevMonth] : [latestMonth];
       const { data: metricsRows } = await supabase.from('monthly_metrics').select('*').in('month', monthsToFetch).limit(5000);
 
       if (!mounted) return;
 
-      // Calcular stats del mes anterior POR PAÍS
+      // PrevStats por país (sin cambios respecto al PR2)
       if (prevStateRows.length > 0 && thRows) {
-        // Map therapist_id → pais
         const paisMap = new Map<string, 'AR' | 'UY'>(
           (thRows as TherapistRow[]).map(t => [t.id, t.pais])
         );
-        // Datos de monthly_metrics del mes anterior con id (para sp mensual)
         const prevMetricsList = (metricsRows || []).filter((m: MonthlyMetricsRow) => m.month === prevMonth);
-        
+
         function computeFor(filter: PaisFilter): PrevStats {
           const ps = prevStateRows.filter((r: any) =>
             filter === 'T' || paisMap.get(r.therapist_id) === filter
@@ -105,16 +103,12 @@ export default function DashboardPage() {
           if (!ps.length) return EMPTY_PREV_STATS;
           const scoreAvg = ps.reduce((s, r: any) => s + (Number(r.score) || 0), 0) / ps.length;
           const ganTotal = ps.reduce((s, r: any) => s + (Number(r.gan_mes) || 0), 0);
-          // sp mensual = total sesiones / total pacientes (no promedio de promedios)
           const totSes = pm.reduce((s, m) => s + (Number(m.sesiones_totales) || 0), 0);
           const totPac = pm.reduce((s, m) => s + (Number(m.pacientes_unicos) || 0), 0);
           const spAvgMes = totPac > 0 ? totSes / totPac : null;
           return { scoreAvg, ganTotal, spAvgMes };
         }
-        
-        // Necesito el id del state row para mappear. La query original era:
-        //   .select('score, gan_mes, ses_paciente_3m')
-        // Necesito agregar therapist_id. Lo hago abajo.
+
         setPrevStatsByPais({
           T: computeFor('T'),
           AR: computeFor('AR'),
@@ -151,9 +145,12 @@ export default function DashboardPage() {
           zona: st?.zona || 'Rojo',
           cuadrante: st?.cuadrante || 'D',
           tendencia: st?.tendencia || 'sin actividad',
-          irrecuperable: st?.irrecuperable || false,
-          senal: st?.senal || null,
-          accionable: st?.accionable || 'monitorear',
+          // NUEVOS campos Matrix
+          situaciones: (st?.situaciones as SituacionId[]) || [],
+          accion: (st?.accion as AccionId) || 'continua',
+          accionesPendientes: (st?.acciones_pendientes as any) || [],
+          mesesEnSituacion: (st?.meses_en_situacion as Record<string, number>) || {},
+          // Métricas
           sesPaciente3m: Number(st?.ses_paciente_3m || 0),
           ganMes: Number(st?.gan_mes || 0),
           diasSinSesion: st?.dias_sin_sesion ?? null,
@@ -185,13 +182,11 @@ export default function DashboardPage() {
     router.replace('/login');
   }, [router, supabase]);
 
-  // Función helper: limpiar todos los filtros (excepto search)
   function clearAllFilters() {
     setFilters({
       search: filters.search,
-      accionable: '', segmento: '', tendencia: '', senal: '', cuadrante: '',
+      accion: '', situacion: '', segmento: '', tendencia: '', cuadrante: '',
     });
-    setVidFilter(false);
     setTab('T');
   }
 
@@ -200,48 +195,50 @@ export default function DashboardPage() {
       .filter((r) => pais === 'T' || r.pais === pais)
       .filter((r) => {
         // Tabs (mutuamente exclusivos)
-        if (tab === 'IRR' && !r.irrecuperable) return false;
-        if (tab === 'OC' && !(r.score >= 70 && r.tendencia === 'bajando')) return false;
+        const sits = r.situaciones || [];
+
+        if (tab === 'CRIT') {
+          // Críticas: rojas (en_abandono, sin_actividad_sostenida) + naranjas (los 3 naranja)
+          const criticas = ['en_abandono','sin_actividad_sostenida','pierde_pacientes_netos','recibe_no_convierte','alerta_arranque'];
+          if (!sits.some(s => criticas.includes(s))) return false;
+        }
+        if (tab === 'V45') {
+          const v45 = ['ventana_45_55_viene_bien','ventana_45_55_poca_actividad','ventana_45_55_sin_actividad'];
+          if (!sits.some(s => v45.includes(s))) return false;
+        }
+        if (tab === 'DEST' && r.accion !== 'destacado') return false;
         if (tab === 'NUE' && segmento(r.dias) !== 'Nuevo') return false;
-        if (tab === 'SEG45' && !r.videollamada) return false;
 
         // Filtros del select
         if (filters.search && !r.nombre.toLowerCase().includes(filters.search.toLowerCase())) return false;
-        if (filters.accionable && r.accionable !== filters.accionable) return false;
+        if (filters.accion && r.accion !== filters.accion) return false;
+        if (filters.situacion && !sits.includes(filters.situacion as SituacionId)) return false;
         if (filters.segmento && segmento(r.dias) !== filters.segmento) return false;
         if (filters.tendencia && r.tendencia !== filters.tendencia) return false;
-        if (filters.senal && r.senal !== filters.senal) return false;
         if (filters.cuadrante && r.cuadrante !== filters.cuadrante) return false;
-        if (vidFilter && !r.videollamada) return false;
         return true;
       });
-  }, [therapists, pais, tab, filters, vidFilter]);
+  }, [therapists, pais, tab, filters]);
 
-  // Handler unificado: cualquier click en KPI resetea TODO lo demás (filtros + tab + bucket)
-  // y aplica solo lo nuevo. Así no se superponen filtros entre clicks.
-  function handleKpiClick(filter: { acc?: string; sen?: string; tab?: string; vid?: boolean }) {
+  function handleKpiClick(filter: { accion?: AccionId; tab?: string }) {
     setFilters({
-      search: filters.search,  // mantengo search
-      accionable: filter.acc || '',
-      segmento: '', tendencia: '',
-      senal: filter.sen || '',
-      cuadrante: '',
+      search: filters.search,
+      accion: filter.accion || '',
+      situacion: '', segmento: '', tendencia: '', cuadrante: '',
     });
-    setVidFilter(filter.vid || false);
     setTab(filter.tab ? (filter.tab as TabKey) : 'T');
   }
 
-const hayFiltrosActivos = useMemo(() => {
+  const hayFiltrosActivos = useMemo(() => {
     return (
       tab !== 'T' ||
-      vidFilter ||
-      filters.accionable !== '' ||
+      filters.accion !== '' ||
+      filters.situacion !== '' ||
       filters.segmento !== '' ||
       filters.tendencia !== '' ||
-      filters.senal !== '' ||
       filters.cuadrante !== ''
     );
-  }, [tab, vidFilter, filters]);
+  }, [tab, filters]);
 
   if (loading) return <div className="loading-wrap">Cargando…</div>;
 
