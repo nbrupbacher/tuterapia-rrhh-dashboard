@@ -1,6 +1,7 @@
 'use client';
 
 import type { FilterState } from '@/lib/types';
+import { SITUACIONES, ACCIONES, ordenarSituacionesPorGravedad } from '@/lib/constants-matrix';
 
 // Re-export para mantener compatibilidad con importaciones que vienen de aquí
 export type { FilterState };
@@ -15,6 +16,16 @@ export function TableFilters({ filters, setFilters, count }: Props) {
   function update<K extends keyof FilterState>(key: K, value: FilterState[K]) {
     setFilters({ ...filters, [key]: value });
   }
+
+  // Situaciones ordenadas por gravedad (rojas primero)
+  const situacionesOrdenadas = ordenarSituacionesPorGravedad(
+    Object.keys(SITUACIONES) as Array<keyof typeof SITUACIONES>,
+  );
+
+  // Acciones ordenadas por prioridad
+  const accionesOrdenadas = Object.values(ACCIONES)
+    .sort((a, b) => a.prioridad - b.prioridad)
+    .map((a) => a.id);
 
   return (
     <div className="ctr">
@@ -31,16 +42,22 @@ export function TableFilters({ filters, setFilters, count }: Props) {
         />
       </div>
 
-      <select value={filters.accionable} onChange={(e) => update('accionable', e.target.value)}>
-        <option value="">Accionable: todos</option>
-        <option value="irrecuperable">⛔ Irrecuperable</option>
-        <option value="revisar_urgente">🔴 Revisar urgente</option>
-        <option value="dejar_mostrar">👻 Fantasmear</option>
-        <option value="potenciar">↑ Potenciar</option>
-        <option value="retencion">⚑ Retención</option>
-        <option value="cancelaciones">⚠ Cancelaciones</option>
-        <option value="disponibilidad">△ Disponibilidad</option>
-        <option value="monitorear">○ Monitorear</option>
+      <select value={filters.accion} onChange={(e) => update('accion', e.target.value)}>
+        <option value="">Acción: todas</option>
+        {accionesOrdenadas.map((a) => (
+          <option key={a} value={a}>
+            {ACCIONES[a].icon} {ACCIONES[a].label}
+          </option>
+        ))}
+      </select>
+
+      <select value={filters.situacion} onChange={(e) => update('situacion', e.target.value)}>
+        <option value="">Situación: todas</option>
+        {situacionesOrdenadas.map((s) => (
+          <option key={s} value={s}>
+            {SITUACIONES[s].label}
+          </option>
+        ))}
       </select>
 
       <select value={filters.cuadrante} onChange={(e) => update('cuadrante', e.target.value)}>
@@ -66,14 +83,6 @@ export function TableFilters({ filters, setFilters, count }: Props) {
         <option value="Junior">Junior</option>
         <option value="Semi Sr">Semi Sr</option>
         <option value="Senior">Senior</option>
-      </select>
-
-      <select value={filters.senal} onChange={(e) => update('senal', e.target.value)}>
-        <option value="">Señal: todas</option>
-        <option value="recien_ingresado">🆕 Recién ingresado</option>
-        <option value="arrancando_bien">🚀 Arrancando bien</option>
-        <option value="alerta_arranque">⚠ Alerta arranque</option>
-        <option value="abandono">💔 Abandono</option>
       </select>
 
       <span className="cnt">{count} terapeutas</span>
