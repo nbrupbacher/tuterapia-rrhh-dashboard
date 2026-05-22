@@ -5,9 +5,10 @@ import type { TherapistView } from '@/lib/types';
 import {
   colorScore, colorSesPaciente, segmento,
   cuadranteBadge, situacionBadge, accionBadge,
+  ordenarSituacionesPorGravedad,
   usd, ganHist,
 } from '@/lib/helpers';
-import { ACCION_INMEDIATA, ACCION_TEMPORAL, ordenarSituacionesPorGravedad } from '@/lib/constants-matrix';
+import { ACCION_INMEDIATA, ACCION_TEMPORAL, ACCIONES } from '@/lib/constants-matrix';
 import { PDESC } from '@/lib/constants';
 import { fetchNotes, addNote, deleteNote, type Note } from '@/lib/notes';
 
@@ -269,6 +270,44 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
                 <div className="mv">{r.regTotalHist || '—'}</div>
                 <div className="ml">Reg. total</div>
               </div>
+              {/* ============ Tarjeta de Conversión ============ */}
+              {(() => {
+                // Calculamos conversión mes actual y mes anterior por separado
+                // para mostrar ambas en la tarjeta y su delta.
+                const regMes = r.regMes ?? 0;
+                const regAnt = r.regAnt ?? 0;
+                const pacAnt = r.pacAnt ?? 0;
+                const nuevosMesActual = Math.max(0, (r.pacMes ?? 0) - pacAnt);
+                const convAct = regMes > 0 ? (nuevosMesActual / regMes) * 100 : null;
+                const convAnt = regAnt > 0 ? (pacAnt / regAnt) * 100 : null;
+                const delta = (convAct != null && convAnt != null) ? convAct - convAnt : null;
+                // Color según valor del mes actual vs benchmark del país
+                const benchmark = r.pais === 'AR' ? 9.4 : 16.1;
+                const colorAct = convAct == null ? 'var(--t3)'
+                  : convAct >= benchmark ? 'var(--v)'
+                  : convAct >= benchmark * 0.7 ? 'var(--am)'
+                  : 'var(--r)';
+                const deltaColor = delta == null ? 'var(--t3)'
+                  : Math.abs(delta) < 0.5 ? 'var(--t3)'
+                  : delta > 0 ? 'var(--v)'
+                  : 'var(--r)';
+                const deltaIcon = delta == null ? '' : Math.abs(delta) < 0.5 ? '→' : delta > 0 ? '↑' : '↓';
+                return (
+                  <div className="mst2">
+                    <div className="mv" style={{ color: colorAct, fontSize: 15 }}>
+                      {convAnt != null ? `${convAnt.toFixed(1)}%` : '—'}
+                      <span style={{ fontSize: 11, color: 'var(--t3)', margin: '0 4px' }}>→</span>
+                      {convAct != null ? `${convAct.toFixed(1)}%` : '—'}
+                    </div>
+                    <div className="ml">Conversión</div>
+                    {delta != null && (
+                      <div className="msb2" style={{ color: deltaColor }}>
+                        {deltaIcon} {delta > 0 ? '+' : ''}{delta.toFixed(1)}pp
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
