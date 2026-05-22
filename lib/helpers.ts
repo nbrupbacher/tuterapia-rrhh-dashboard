@@ -1,4 +1,6 @@
 import type { Tendencia, TherapistView } from './types';
+import type { SituacionId, AccionId, ColorSituacion } from './constants-matrix';
+import { SITUACIONES, ACCIONES, COLOR_CLS, ordenarSituacionesPorGravedad } from './constants-matrix';
 
 // ============================================================
 // Colores
@@ -76,20 +78,55 @@ export function cuadranteBadge(c: 'A' | 'B' | 'C' | 'D'): { cls: string; label: 
   return map[c] || { cls: 'pr-d', label: '—' };
 }
 
-export function accionableBadge(a: string): { cls: string; label: string } {
-  const map: Record<string, { cls: string; label: string }> = {
-    irrecuperable:    { cls: 'ai',  label: '⛔ Irrecuperable' },
-    revisar_urgente:  { cls: 'ar2', label: '🔴 Revisar urgente' },
-    dejar_mostrar:    { cls: 'am2', label: '👻 Fantasmear' },
-    potenciar:        { cls: 'ap',  label: '↑ Potenciar' },
-    retencion:        { cls: 'at',  label: '⚑ Retención' },
-    cancelaciones:    { cls: 'ac2', label: '⚠ Cancelaciones' },
-    disponibilidad:   { cls: 'ad',  label: '△ Disponibilidad' },
-    monitorear:       { cls: 'amo', label: '○ Monitorear' },
+// ============================================================
+// MATRIX — badges de situación y acción (NUEVO PR3)
+// ============================================================
+
+// Dot de color al inicio del badge según color de la situación
+const COLOR_DOT: Record<ColorSituacion, string> = {
+  verde:    '#34d399',
+  azul:     '#38bdf8',
+  amarillo: '#f5a623',
+  naranja:  '#ff8c50',
+  rojo:     '#f05252',
+};
+
+export function situacionBadge(id: SituacionId): { cls: string; label: string; dot: string } {
+  const def = SITUACIONES[id];
+  return {
+    cls: COLOR_CLS[def.color],
+    label: def.label,
+    dot: COLOR_DOT[def.color],
   };
-  return map[a] || { cls: 'amo', label: '○ Monitorear' };
 }
 
+// Las dos situaciones más graves (para mostrar en la tabla)
+export function topSituaciones(situaciones: SituacionId[], max = 2): SituacionId[] {
+  return ordenarSituacionesPorGravedad(situaciones).slice(0, max);
+}
+
+export function accionBadge(id: AccionId): { cls: string; label: string; icon: string } {
+  const def = ACCIONES[id];
+  // Mapeo de clase CSS según ID
+  const clsMap: Record<AccionId, string> = {
+    evaluar_continuidad: 'acc-evaluar',
+    whatsapp:            'acc-whatsapp',
+    meet:                'acc-meet',
+    retencion:           'acc-retencion',
+    fantasmear:          'acc-fantasmear',
+    destacado:           'acc-destacado',
+    continua:            'acc-continua',
+  };
+  return {
+    cls: clsMap[id],
+    label: def.label,
+    icon: def.icon,
+  };
+}
+
+// ============================================================
+// Deltas y row class
+// ============================================================
 export function deltaBadge(actual: number | null, anterior: number | null): { cls: string; label: string } | null {
   if (actual == null || anterior == null) return null;
   const d = actual - anterior;
@@ -110,9 +147,13 @@ export function conversion(pacAct: number | null, pacAnt: number | null, regMes:
   return { value: cv, color: col };
 }
 
+// MODIFICADO PR3: ahora chequea situaciones rojas en lugar de irrecuperable
 export function rowClass(t: TherapistView): string {
-  if (t.irrecuperable) return 'ri';
-  if (t.score >= 70 && t.tendencia === 'bajando') return 'ro';
+  const sits = t.situaciones || [];
+  // Crítico (rojo) si tiene "sin_actividad_sostenida" o "en_abandono"
+  if (sits.includes('sin_actividad_sostenida') || sits.includes('en_abandono')) return 'ri';
+  // Naranja suave si tiene "pierde_pacientes_netos"
+  if (sits.includes('pierde_pacientes_netos')) return 'ro';
   return '';
 }
 
@@ -124,7 +165,7 @@ export function ganHist(t: TherapistView): number {
 }
 
 // ============================================================
-// Deltas (variación vs período anterior)
+// Deltas (variación vs período anterior) — sin cambios
 // ============================================================
 export interface Delta {
   label: string;
