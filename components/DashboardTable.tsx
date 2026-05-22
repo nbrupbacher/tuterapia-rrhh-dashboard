@@ -4,9 +4,11 @@ import { useState, useMemo } from 'react';
 import type { TherapistView, View } from '@/lib/types';
 import {
   colorScore, colorSesPaciente, colorHs, colorZona, colorDias,
-  segmento, tendenciaBadge, cuadranteBadge, accionableBadge,
+  segmento, tendenciaBadge, cuadranteBadge,
+  situacionBadge, accionBadge, topSituaciones,
   deltaBadge, conversion, rowClass, usd, ganHist,
 } from '@/lib/helpers';
+import { ACCION_TEMPORAL } from '@/lib/constants-matrix';
 
 interface DashboardTableProps {
   data: TherapistView[];
@@ -21,7 +23,7 @@ type SortKey = keyof TherapistView | '_ganHist';
 
 function lblShort(month: string): string {
   if (!month || month === '—') return '—';
-  const [yy, mm] = month.split('-').map(Number);
+  const [, mm] = month.split('-').map(Number);
   const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   return meses[mm - 1] || '—';
 }
@@ -29,7 +31,9 @@ function lblShort(month: string): string {
 // Función para obtener valor de sort de un row con cualquier clave (incluso computada)
 function getSortValue(r: TherapistView, key: SortKey): number | string | null {
   if (key === '_ganHist') return ganHist(r);
-  const v = r[key];
+  const v = r[key as keyof TherapistView];
+  // arrays/objetos no son sorteables: devolvemos null
+  if (Array.isArray(v) || (typeof v === 'object' && v !== null)) return null;
   return v as any;
 }
 
@@ -50,16 +54,13 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
   }, []);
 
   const sorted = useMemo(() => {
-    // Orden custom para cuadrantes: A → B → C → D (mejor primero)
     const cuadOrder: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
     return [...data].sort((a, b) => {
       const av = getSortValue(a, sortKey);
       const bv = getSortValue(b, sortKey);
-      // NULLS SIEMPRE al final, sin importar dirección
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
       if (bv == null) return -1;
-      // Cuadrantes con orden A→D
       if (sortKey === 'cuadrante') {
         return ((cuadOrder[av as string] ?? 99) - (cuadOrder[bv as string] ?? 99)) * sortDir;
       }
@@ -100,11 +101,11 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                 <>
                   <SortableTh k="nombre" cls="c-n">Terapeuta</SortableTh>
                   <SortableTh k="pais" cls="c-p">País</SortableTh>
-                  <SortableTh k="score" cls="c-s">Score</SortableTh>
-                  <SortableTh k="dias" cls="c-sg">Segmento</SortableTh>
-                  <SortableTh k="tendencia" cls="c-t">Tendencia 4m</SortableTh>
+                  <SortableTh k="dias" cls="c-sg">Segm.</SortableTh>
                   <SortableTh k="cuadrante" cls="c-pr">Predicción</SortableTh>
-                  <SortableTh k="accionable" cls="c-a">Accionable</SortableTh>
+                  <SortableTh k="score" cls="c-s">Score</SortableTh>
+                  <PlainTh cls="c-sit">Situación</PlainTh>
+                  <SortableTh k="accion" cls="c-acc">Acción</SortableTh>
                 </>
               ) : (
                 <>
@@ -124,6 +125,7 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                   <SortableTh k="hs" cls="c-hs">Hs.</SortableTh>
                   <SortableTh k="_ganHist" cls="c-gh">Gan.hist.</SortableTh>
                   <SortableTh k="ganMes" cls="c-gm">Gan. {mesActLbl}</SortableTh>
+                  <SortableTh k="accion" cls="c-acc">Acción</SortableTh>
                 </>
               )}
             </tr>
@@ -131,18 +133,20 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
           <tbody>
             {slice.map((r) => {
               if (isPred) {
-                const tBadge = tendenciaBadge(r.tendencia);
+                // ===== VISTA PREDICTIBILIDAD =====
                 const cBadge = cuadranteBadge(r.cuadrante);
-                const aBadge = accionableBadge(r.accionable);
+                const aBadge = accionBadge(r.accion);
+                const sitsTop = topSituaciones(r.situaciones || [], 2);
+                // Identificar si esta acción es la "pendiente" (escalada temporal no cumplida)
+                const tienePendiente = (r.accionesPendientes || []).length > 0;
+                const pendiente = tienePendiente ? r.accionesPendientes[0] : null;
+
                 return (
                   <tr key={r.id} className={rowClass(r)} onClick={() => onRowClick(r)}>
-                    <td className="c-n tn">
-                      {r.videollamada && (
-                        <span className="ac avid" style={{ fontSize: 9, padding: '1px 5px', marginRight: 3 }}>📞</span>
-                      )}
-                      {r.nombre}
-                    </td>
+                    <td className="c-n tn">{r.nombre}</td>
                     <td className="c-p"><span className={`b ${r.pais === 'AR' ? 'bar' : 'buy'}`}>{r.pais}</span></td>
+                    <td className="c-sg"><span className="b bn">{segmento(r.dias)}</span></td>
+                    <td className="c-pr"><span className={`pr ${cBadge.cls}`}>{cBadge.label}</span></td>
                     <td className="c-s">
                       <div className="sb">
                         <div className="sbar">
@@ -151,16 +155,41 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                         <span className="sn" style={{ color: colorScore(r.score) }}>{r.score}</span>
                       </div>
                     </td>
-                    <td className="c-sg"><span className="b bn">{segmento(r.dias)}</span></td>
-                    <td className="c-t"><span className={`ts ${tBadge.cls}`}>{tBadge.label}</span></td>
-                    <td className="c-pr"><span className={`pr ${cBadge.cls}`}>{cBadge.label}</span></td>
-                    <td className="c-a"><span className={`ac ${aBadge.cls}`}>{aBadge.label}</span></td>
+                    <td className="c-sit">
+                      <div className="sits">
+                        {sitsTop.length === 0 ? (
+                          <span className="sit sit-g">Estable</span>
+                        ) : (
+                          sitsTop.map((sid) => {
+                            const sb = situacionBadge(sid);
+                            return (
+                              <span key={sid} className={`sit ${sb.cls}`}>
+                                <span className="sit-dot" style={{ background: sb.dot }} />
+                                {sb.label}
+                              </span>
+                            );
+                          })
+                        )}
+                      </div>
+                    </td>
+                    <td className="c-acc">
+                      <div className="acc-multi">
+                        <span className={`acc ${aBadge.cls}`}>{aBadge.icon} {aBadge.label}</span>
+                        {pendiente && (
+                          <span className={`acc ${accionBadge(pendiente.accion).cls} acc-pending`}>
+                            {accionBadge(pendiente.accion).icon} {accionBadge(pendiente.accion).label} · tras {pendiente.meses_para_activar}m
+                          </span>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 );
               }
 
-              // VIEW = anal
+              // ===== VISTA ANÁLISIS =====
+              // Sin columna "Situación" pero con "Acción" al final
               const tBadge = tendenciaBadge(r.tendencia);
+              const aBadge = accionBadge(r.accion);
               const sp = r.sesPaciente3m || 0;
               const dtPac = deltaBadge(r.pacMes, r.pacAnt);
               const dtSes = deltaBadge(r.sesMes, r.sesAnt);
@@ -171,19 +200,13 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
 
               return (
                 <tr key={r.id} className={rowClass(r)} onClick={() => onRowClick(r)}>
-                  <td className="c-n tn">
-                    {r.videollamada && (
-                      <span className="ac avid" style={{ fontSize: 9, padding: '1px 5px', marginRight: 3 }}>📞</span>
-                    )}
-                    {r.nombre}
-                  </td>
+                  <td className="c-n tn">{r.nombre}</td>
                   <td className="c-p"><span className={`b ${r.pais === 'AR' ? 'bar' : 'buy'}`}>{r.pais}</span></td>
                   <td className="c-es" style={{ textAlign: 'center' }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', display: 'inline-block', background: colorZona(r.zona) }} />
                   </td>
                   <td className="c-t"><span className={`ts ${tBadge.cls}`}>{tBadge.label}</span></td>
                   <td className="c-sg"><span className="b bn">{segmento(r.dias)}</span></td>
-                  {/* Sesiones del mes con delta vs mes anterior */}
                   <td className="c-se tm">
                     {r.sesMes != null ? (
                       <>
@@ -192,9 +215,7 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                       </>
                     ) : '—'}
                   </td>
-                  {/* Pacientes mes anterior */}
                   <td className="c-pp tm" style={{ color: 'var(--t2)' }}>{r.pacAnt != null ? r.pacAnt : '—'}</td>
-                  {/* Pacientes del mes con delta */}
                   <td className="c-pa tm">
                     {r.pacMes != null ? (
                       <>
@@ -203,21 +224,15 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                       </>
                     ) : '—'}
                   </td>
-                  {/* Reg del mes */}
                   <td className="c-rm tm">{r.regMes != null ? r.regMes : '—'}</td>
-                  {/* Conversión (con base solo si hay datos) */}
                   <td className="c-cv tm" style={{ color: r.pacAnt == null ? 'var(--t3)' : conv.color }}>
                     {r.pacAnt == null ? '—' : conv.value !== null ? `${conv.value}%` : '—'}
                   </td>
-                  {/* Reg.total histórico */}
                   <td className="c-rt tm" style={{ color: 'var(--t2)' }}>{r.regTotalHist || '—'}</td>
-                  {/* Prom.ses 3m */}
                   <td className="c-sp tm" style={{ color: colorSesPaciente(sp) }}>{sp ? sp.toFixed(1) : '—'}</td>
-                  {/* Última sesión: días */}
                   <td className="c-ul tm" style={{ color: colorDias(r.diasSinSesion) }}>
                     {r.diasSinSesion != null ? `${r.diasSinSesion}d` : '—'}
                   </td>
-                  {/* Horas */}
                   <td className="c-hs">
                     <div className="hb">
                       <div className="hbg">
@@ -226,10 +241,9 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                       <span className="tm" style={{ color: colorHs(hsVal) }}>{hsVal}h</span>
                     </div>
                   </td>
-                  {/* Ganancia histórica (ordenable) */}
                   <td className={`c-gh ${gh >= 0 ? 'gp' : 'gn'}`}>{usd(gh)}</td>
-                  {/* Ganancia del mes */}
                   <td className={`c-gm ${r.ganMes == null ? 'g0' : r.ganMes >= 0 ? 'gp' : 'gn'}`}>{usd(r.ganMes)}</td>
+                  <td className="c-acc"><span className={`acc ${aBadge.cls}`}>{aBadge.icon} {aBadge.label}</span></td>
                 </tr>
               );
             })}
