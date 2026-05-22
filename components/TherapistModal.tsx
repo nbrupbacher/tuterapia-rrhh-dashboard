@@ -71,6 +71,7 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
   const sp = r.sesPaciente3m || 0;
   const tc = r.tasaCancelMes ?? 0;
   const deltaPac = r.pacMes != null && r.pacAnt != null ? r.pacMes - r.pacAnt : null;
+  const deltaReg = r.regMes != null && r.regAnt != null ? r.regMes - r.regAnt : null;
   const gh = ganHist(r);
   const cBadge = cuadranteBadge(r.cuadrante);
   const whatsapp = waLink(r.telefono, r.pais);
@@ -172,7 +173,6 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
                   const accInm = ACCION_INMEDIATA[sid];
                   const escalada = ACCION_TEMPORAL[sid];
                   const desc = SDESC[sid] ? SDESC[sid](r) : '';
-                  // ¿La escalada ya se activó?
                   const escaladaCumplida = escalada ? meses >= escalada.mesesParaActivar : false;
                   return (
                     <div key={sid} style={{ background: 'var(--bg3)', borderRadius: 7, padding: '9px 11px' }}>
@@ -246,6 +246,13 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
                 <div className="msb2">{r.pacAnt != null ? `mes ant: ${r.pacAnt}` : ''}</div>
               </div>
               <div className="mst2">
+                <div className="mv" style={{ color: (r.regMes || 0) === 0 ? 'var(--t3)' : 'inherit' }}>
+                  {r.regMes != null ? r.regMes : '—'}
+                </div>
+                <div className="ml">Reg. mes{itag(deltaReg)}</div>
+                <div className="msb2">{r.regAnt != null ? `mes ant: ${r.regAnt}` : ''}</div>
+              </div>
+              <div className="mst2">
                 <div className="mv" style={{ color: tc > 0.3 ? 'var(--r)' : tc > 0.2 ? 'var(--am)' : 'inherit' }}>
                   {tc ? `${Math.round(tc * 100)}%` : '—'}
                 </div>
@@ -271,8 +278,6 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
               </div>
               {/* ============ Tarjeta de Conversión ============ */}
               {(() => {
-                // Calculamos conversión mes actual y mes anterior por separado
-                // para mostrar ambas en la tarjeta y su delta.
                 const regMes = r.regMes ?? 0;
                 const regAnt = r.regAnt ?? 0;
                 const pacAnt = r.pacAnt ?? 0;
@@ -280,7 +285,6 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
                 const convAct = regMes > 0 ? (nuevosMesActual / regMes) * 100 : null;
                 const convAnt = regAnt > 0 ? (pacAnt / regAnt) * 100 : null;
                 const delta = (convAct != null && convAnt != null) ? convAct - convAnt : null;
-                // Color según valor del mes actual vs benchmark del país
                 const benchmark = r.pais === 'AR' ? 9.4 : 16.1;
                 const colorAct = convAct == null ? 'var(--t3)'
                   : convAct >= benchmark ? 'var(--v)'
