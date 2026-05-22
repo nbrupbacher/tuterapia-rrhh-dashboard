@@ -4,9 +4,12 @@ import { useEffect, useState } from 'react';
 import type { TherapistView } from '@/lib/types';
 import {
   colorScore, colorSesPaciente, segmento,
-  cuadranteBadge, accionableBadge, usd, ganHist,
+  cuadranteBadge, situacionBadge, accionBadge,
+  ordenarSituacionesPorGravedad,
+  usd, ganHist,
 } from '@/lib/helpers';
-import { PDESC, ADESC } from '@/lib/constants';
+import { ACCION_INMEDIATA, ACCION_TEMPORAL, ACCIONES } from '@/lib/constants-matrix';
+import { PDESC } from '@/lib/constants';
 import { fetchNotes, addNote, deleteNote, type Note } from '@/lib/notes';
 
 interface Props {
@@ -15,18 +18,34 @@ interface Props {
   onClose: () => void;
 }
 
-// Limpiar teléfono para WhatsApp: solo números, agregar código país si falta
+// Descripciones de cada situación (para mostrar contexto en el modal)
+const SDESC: Record<string, (t: TherapistView) => string> = {
+  top_performer: () => 'Cuadrante A con tendencia positiva o estable. Máximo perfil actual. Priorizar en visibilidad y matching.',
+  arrancando_bien: (t) => `Terapeuta con menos de 6 meses que viene fuerte (${t.sesMes ?? 0} sesiones este mes con tendencia subiendo).`,
+  recien_ingresado: () => 'Menos de 30 días en la plataforma. Sin alertas activas, sigue en período de onboarding.',
+  estable: () => 'Sin alertas activas. Performance constante. Seguimiento regular en el próximo ciclo.',
+  ventana_45_55_viene_bien: () => 'En ventana de evaluación temprana (45-55 días) con performance buena. Momento ideal para reconocimiento.',
+  ventana_45_55_poca_actividad: (t) => `En ventana 45-55 días con poca actividad (${t.sesMes ?? 0} sesiones este mes). Conviene Meet para entender qué está pasando.`,
+  ventana_45_55_sin_actividad: () => 'En ventana 45-55 días sin sesiones. Conversación urgente para evaluar continuidad temprana.',
+  baja_retencion: (t) => `Promedio de sesiones por paciente últimos 3m: ${(t.sesPaciente3m ?? 0).toFixed(2)} (umbral: 2.0). Los pacientes no vuelven con regularidad.`,
+  sin_horarios_cargados: () => 'Sin horas disponibles cargadas. Los pacientes no pueden agendarse. Solicitar actualización del perfil.',
+  cancelaciones: (t) => `Tasa de cancelación: ${Math.round((t.tasaCancelMes ?? 0) * 100)}% (umbral: 20%). Afecta experiencia del paciente y score.`,
+  alerta_arranque: () => 'Menos de 6 meses con muy pocas sesiones y tendencia floja. Conviene contacto temprano para identificar bloqueos.',
+  recibe_no_convierte: () => 'Recibe registros pero la conversión está por debajo del 50% del benchmark del país. Tiene demanda pero no la aprovecha.',
+  pierde_pacientes_netos: (t) => `Recibió ${t.regMes ?? 0} registros este mes pero tiene menos pacientes que el mes anterior. Si persiste, se activa Fantasmear automáticamente.`,
+  en_abandono: () => 'Menos de 6 meses sin sesiones este mes y tendencia sin actividad o bajando. Si persiste 3 meses, se evalúa continuidad.',
+  sin_actividad_sostenida: () => 'Más de 30 días sin sesión. Sin actividad consolidada. Si persiste 3 meses, se evalúa continuidad.',
+};
+
+// Limpiar teléfono para WhatsApp
 function waLink(phone: string | null, pais: 'AR' | 'UY'): string | null {
   if (!phone) return null;
   const cleaned = phone.replace(/[^0-9]/g, '');
   if (!cleaned) return null;
-  // Si ya tiene código de país completo, usarlo
   if (cleaned.startsWith('54') || cleaned.startsWith('598')) {
     return `https://wa.me/${cleaned}`;
   }
-  // Si empieza con 0 (formato local AR), quitarlo
   const noLeadingZero = cleaned.replace(/^0+/, '');
-  // Agregar código país según país del terapeuta
   const prefix = pais === 'AR' ? '54' : '598';
   return `https://wa.me/${prefix}${noLeadingZero}`;
 }
@@ -55,8 +74,11 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
   const deltaPac = r.pacMes != null && r.pacAnt != null ? r.pacMes - r.pacAnt : null;
   const gh = ganHist(r);
   const cBadge = cuadranteBadge(r.cuadrante);
-  const aBadge = accionableBadge(r.accionable);
   const whatsapp = waLink(r.telefono, r.pais);
+
+  // Situaciones ordenadas por gravedad
+  const sitsOrdenadas = ordenarSituacionesPorGravedad(r.situaciones || []);
+  const mesesEnSit = r.mesesEnSituacion || {};
 
   const itag = (v: number | null | undefined, suf = '') => {
     if (v == null) return null;
@@ -100,7 +122,6 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
               {r.pais} · {segmento(r.dias)} · Alta: {r.inicio || '—'}
               {r.corriente && ` · ${r.corriente}`}
             </div>
-            {/* Email + WhatsApp */}
             <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 4 }}>
               {r.email && (
                 <div style={{ display: 'flex', alignItems: 'center', minHeight: 18 }}>
@@ -134,42 +155,59 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
         </div>
 
         <div className="mb">
-          {/* Sección 1: Accionable */}
+
+          {/* ============ Situaciones detectadas ============ */}
           <div className="ms">
-            <span className={`ac ${aBadge.cls}`}>{aBadge.label}</span>
-            <div style={{ background: 'var(--bg3)', borderRadius: 7, padding: '9px 11px', marginTop: 6 }}>
-              <p style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.55, marginBottom: 6 }}>
-                {ADESC[r.accionable] || ''}
-              </p>
-              <div className="ind">
-                {deltaPac != null && (
-                  <span className="ic">
-                    Δ Pacientes mes
-                    {deltaPac > 0 && <span style={{ color: 'var(--v)' }}> ↑+{deltaPac}</span>}
-                    {deltaPac < 0 && <span style={{ color: 'var(--r)' }}> ↓{deltaPac}</span>}
-                    {deltaPac === 0 && ' ='}
-                  </span>
-                )}
-                {sp > 0 && (
-                  <span className="ic">
-                    Prom.ses 3m <span style={{ color: colorSesPaciente(sp) }}>{sp.toFixed(1)}</span>
-                  </span>
-                )}
-                {r.reg3m != null && (
-                  <span className="ic">
-                    Reg. 3m <span style={{ color: 'var(--t)' }}>{r.reg3m}</span>
-                  </span>
-                )}
-                {tc > 0.2 && (
-                  <span className="ic">
-                    Cancelaciones <span style={{ color: 'var(--r)' }}>{Math.round(tc * 100)}%</span>
-                  </span>
-                )}
-              </div>
+            <div className="mst">
+              Situaciones detectadas ({sitsOrdenadas.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {sitsOrdenadas.length === 0 ? (
+                <div style={{ background: 'var(--bg3)', borderRadius: 7, padding: '9px 11px', fontSize: 11, color: 'var(--t2)' }}>
+                  Sin situaciones detectadas este mes.
+                </div>
+              ) : (
+                sitsOrdenadas.map((sid) => {
+                  const sb = situacionBadge(sid);
+                  const meses = mesesEnSit[sid] ?? 1;
+                  const accInm = ACCION_INMEDIATA[sid];
+                  const escalada = ACCION_TEMPORAL[sid];
+                  const desc = SDESC[sid] ? SDESC[sid](r) : '';
+                  // ¿La escalada ya se activó?
+                  const escaladaCumplida = escalada ? meses >= escalada.mesesParaActivar : false;
+                  return (
+                    <div key={sid} style={{ background: 'var(--bg3)', borderRadius: 7, padding: '9px 11px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span className="sit-dot" style={{ background: sb.dot, width: 7, height: 7, borderRadius: '50%' }} />
+                        <span style={{ fontSize: 12, fontWeight: 500 }}>{sb.label}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: 10, fontFamily: 'var(--m)', color: 'var(--t3)', background: 'var(--bg2)', padding: '1px 6px', borderRadius: 4 }}>
+                          {meses}° mes
+                        </span>
+                      </div>
+                      {desc && (
+                        <p style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.55, margin: '6px 0' }}>
+                          {desc}
+                        </p>
+                      )}
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                        <span className={`acc ${accionBadge(accInm).cls}`}>
+                          {accionBadge(accInm).icon} {accionBadge(accInm).label}
+                        </span>
+                        {escalada && (
+                          <span className={`acc ${accionBadge(escalada.accion).cls} ${escaladaCumplida ? '' : 'acc-pending'}`}>
+                            {accionBadge(escalada.accion).icon} {accionBadge(escalada.accion).label}
+                            {!escaladaCumplida && ` · tras ${escalada.mesesParaActivar - meses}m`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
-          {/* Sección 2: Predicción */}
+          {/* ============ Predicción ============ */}
           <div className="ms">
             <div className="mst">Predicción</div>
             <div style={{ background: 'var(--bg3)', borderRadius: 7, padding: '9px 11px' }}>
@@ -184,7 +222,7 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
             </div>
           </div>
 
-          {/* Sección 3: Métricas */}
+          {/* ============ Métricas ============ */}
           <div className="ms">
             <div className="mst">Métricas</div>
             <div className="mg">
@@ -235,7 +273,7 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
             </div>
           </div>
 
-          {/* Sección 4: Notas */}
+          {/* ============ Notas ============ */}
           <div className="ms">
             <div className="mst">📝 Notas del equipo</div>
             <div style={{ background: 'var(--bg3)', borderRadius: 7, padding: '9px 11px' }}>
