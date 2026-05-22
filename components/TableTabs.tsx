@@ -7,12 +7,12 @@ interface TableTabsProps {
   setTab: (t: TabKey) => void;
 }
 
-const TABS: { id: TabKey; label: string }[] = [
-  { id: 'T', label: 'Todos' },
-  { id: 'IRR', label: '⛔ Irrecuperables' },
-  { id: 'OC', label: '⚠ Alerta oculta' },
-  { id: 'NUE', label: 'Nuevos' },
-  { id: 'SEG45', label: '📅 Seguimiento 45d' },
+const TABS: { id: TabKey; label: string; cls?: string }[] = [
+  { id: 'T',    label: 'Todos' },
+  { id: 'CRIT', label: '🔴 Críticas', cls: 'tab-critico' },
+  { id: 'V45',  label: '📅 Ventana 45-55' },
+  { id: 'DEST', label: '⭐ Destacados' },
+  { id: 'NUE',  label: 'Nuevos' },
 ];
 
 export function TableTabs({ tab, setTab }: TableTabsProps) {
@@ -21,7 +21,7 @@ export function TableTabs({ tab, setTab }: TableTabsProps) {
       {TABS.map((t) => (
         <div
           key={t.id}
-          className={`tab ${tab === t.id ? 'on' : ''}`}
+          className={`tab ${t.cls || ''} ${tab === t.id ? 'on' : ''}`}
           onClick={() => setTab(t.id)}
         >
           {t.label}
