@@ -2,58 +2,64 @@
 
 import type { TherapistView, PaisFilter } from '@/lib/types';
 import { colorScore, usd } from '@/lib/helpers';
+import { ACCIONES } from '@/lib/constants-matrix';
+import type { AccionId } from '@/lib/constants-matrix';
 
 interface KpiSectionsProps {
   data: TherapistView[];
   pais: PaisFilter;
-  onKpiClick: (filter: { acc?: string; sen?: string; tab?: string; vid?: boolean }) => void;
+  // Cuando se clickea un KPI: filtrar por acción o por tab
+  onKpiClick: (filter: { accion?: AccionId; tab?: string }) => void;
 }
+
+// Definición visual de cada tarjeta de "Acciones del mes"
+const KPI_ACCIONES: {
+  id: AccionId;
+  label: string;
+  icon: string;
+  color: string;       // color del número
+  borderColor: string; // color del borde
+}[] = [
+  { id: 'evaluar_continuidad', label: 'Evaluar continuidad', icon: '🚨', color: '#ff7676', borderColor: 'rgba(240,82,82,.35)' },
+  { id: 'whatsapp',            label: 'WhatsApp',             icon: '📱', color: '#ffa872', borderColor: 'rgba(255,140,80,.3)' },
+  { id: 'meet',                label: 'Meet',                 icon: '📞', color: '#38bdf8', borderColor: 'rgba(56,189,248,.3)' },
+  { id: 'retencion',           label: 'Retención',            icon: '✉️', color: 'var(--am)', borderColor: 'rgba(245,166,35,.28)' },
+  { id: 'fantasmear',          label: 'Fantasmear',           icon: '👻', color: 'var(--ar)', borderColor: 'rgba(167,139,250,.28)' },
+  { id: 'destacado',           label: 'Destacado',            icon: '⭐', color: 'var(--v)',  borderColor: 'rgba(52,211,153,.25)' },
+];
 
 export function KpiSections({ data, pais, onKpiClick }: KpiSectionsProps) {
   const filtered = data.filter((r) => pais === 'T' || r.pais === pais);
 
-  const nIrr = filtered.filter((r) => r.irrecuperable).length;
-  const nRev = filtered.filter((r) => r.accionable === 'revisar_urgente').length;
-  const nOc = filtered.filter((r) => r.score >= 70 && r.tendencia === 'bajando').length;
-  const nAlerta = filtered.filter((r) => r.senal === 'alerta_arranque').length;
-  const nAbandono = filtered.filter((r) => r.senal === 'abandono').length;
-  const nVid = filtered.filter((r) => r.videollamada).length;
+  // Contar terapeutas por acción
+  const contarPorAccion = (accion: AccionId) =>
+    filtered.filter((r) => r.accion === accion).length;
 
+  // Estado del mes (sin cambios respecto al modelo viejo)
   const nSubiendo = filtered.filter((r) => r.tendencia === 'subiendo').length;
   const nBajando = filtered.filter((r) => r.tendencia === 'bajando').length;
   const totalGan = filtered.reduce((s, r) => s + (r.ganMes || 0), 0);
-
   const scores = filtered.map((r) => r.score || 0).sort((a, b) => a - b);
   const med = scores.length > 0 ? scores[Math.floor(scores.length / 2)] || 0 : 0;
 
   return (
     <>
-      <div className="ks-lbl">Acción urgente</div>
+      <div className="ks-lbl">Acciones del mes</div>
       <div className="ks">
-        <div className="k" onClick={() => onKpiClick({ acc: 'irrecuperable' })}>
-          <div className="kv" style={{ color: '#f87171' }}>{nIrr}</div>
-          <div className="kl">Irrecuperables</div>
-        </div>
-        <div className="k" onClick={() => onKpiClick({ acc: 'revisar_urgente' })}>
-          <div className="kv" style={{ color: 'var(--r)' }}>{nRev}</div>
-          <div className="kl">Revisar urgente</div>
-        </div>
-        <div className="k" onClick={() => onKpiClick({ tab: 'OC' })}>
-          <div className="kv" style={{ color: 'var(--am)' }}>{nOc}</div>
-          <div className="kl">Alerta oculta</div>
-        </div>
-        <div className="k" onClick={() => onKpiClick({ sen: 'alerta_arranque' })}>
-          <div className="kv" style={{ color: 'var(--am)' }}>{nAlerta}</div>
-          <div className="kl">Alerta arranque</div>
-        </div>
-        <div className="k" onClick={() => onKpiClick({ sen: 'abandono' })}>
-          <div className="kv" style={{ color: 'var(--r)' }}>{nAbandono}</div>
-          <div className="kl">Abandono</div>
-        </div>
-        <div className="k" style={{ borderColor: 'rgba(56,189,248,.3)' }} onClick={() => onKpiClick({ vid: true })}>
-          <div className="kv" style={{ color: '#38bdf8' }}>{nVid}</div>
-          <div className="kl" style={{ color: '#38bdf8' }}>📞 Videollamada</div>
-        </div>
+        {KPI_ACCIONES.map((k) => {
+          const count = contarPorAccion(k.id);
+          return (
+            <div
+              key={k.id}
+              className="k"
+              style={{ borderColor: k.borderColor }}
+              onClick={() => onKpiClick({ accion: k.id })}
+            >
+              <div className="kv" style={{ color: k.color }}>{count}</div>
+              <div className="kl" style={{ color: k.color }}>{k.icon} {k.label}</div>
+            </div>
+          );
+        })}
       </div>
 
       <div className="div" />
