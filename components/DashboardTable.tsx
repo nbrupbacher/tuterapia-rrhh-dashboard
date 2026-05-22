@@ -19,7 +19,7 @@ interface DashboardTableProps {
 const PAGE_SIZE = 50;
 
 // SortKey amplio para columnas computadas
-type SortKey = keyof TherapistView | '_ganHist';
+type SortKey = keyof TherapistView | '_ganHist' | '_conv';
 
 function lblShort(month: string): string {
   if (!month || month === '—') return '—';
@@ -28,11 +28,18 @@ function lblShort(month: string): string {
   return meses[mm - 1] || '—';
 }
 
+// Pre-calcular conversión numérica para ordenar
+function calcConvNum(r: TherapistView): number | null {
+  if (r.pacAnt == null || !r.regMes || r.regMes === 0) return null;
+  const np = Math.max(0, (r.pacMes ?? 0) - r.pacAnt);
+  return Math.round(np / r.regMes * 100);
+}
+
 // Función para obtener valor de sort de un row con cualquier clave (incluso computada)
 function getSortValue(r: TherapistView, key: SortKey): number | string | null {
   if (key === '_ganHist') return ganHist(r);
+  if (key === '_conv') return calcConvNum(r);
   const v = r[key as keyof TherapistView];
-  // arrays/objetos no son sorteables: devolvemos null
   if (Array.isArray(v) || (typeof v === 'object' && v !== null)) return null;
   return v as any;
 }
@@ -118,7 +125,7 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                   <SortableTh k="pacAnt" cls="c-pp">Pac. {mesAntLbl}</SortableTh>
                   <SortableTh k="pacMes" cls="c-pa">Pac. {mesActLbl}</SortableTh>
                   <SortableTh k="regMes" cls="c-rm">Reg. {mesActLbl}</SortableTh>
-                  <PlainTh cls="c-cv">Conv.</PlainTh>
+                  <SortableTh k="_conv" cls="c-cv">Conv.</SortableTh>
                   <SortableTh k="regTotalHist" cls="c-rt">Reg.total</SortableTh>
                   <SortableTh k="sesPaciente3m" cls="c-sp">Prom.ses 3m</SortableTh>
                   <SortableTh k="ultimaSesion" cls="c-ul">Últ.ses.</SortableTh>
@@ -133,11 +140,9 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
           <tbody>
             {slice.map((r) => {
               if (isPred) {
-                // ===== VISTA PREDICTIBILIDAD =====
                 const cBadge = cuadranteBadge(r.cuadrante);
                 const aBadge = accionBadge(r.accion);
                 const sitsTop = topSituaciones(r.situaciones || [], 2);
-                // Identificar si esta acción es la "pendiente" (escalada temporal no cumplida)
                 const tienePendiente = (r.accionesPendientes || []).length > 0;
                 const pendiente = tienePendiente ? r.accionesPendientes[0] : null;
 
@@ -187,7 +192,6 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
               }
 
               // ===== VISTA ANÁLISIS =====
-              // Sin columna "Situación" pero con "Acción" al final
               const tBadge = tendenciaBadge(r.tendencia);
               const aBadge = accionBadge(r.accion);
               const sp = r.sesPaciente3m || 0;
