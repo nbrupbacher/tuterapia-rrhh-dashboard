@@ -35,9 +35,9 @@ export function UploadModal({ open, onClose, onSuccess, suggestedMonth }: Props)
   const [preview, setPreview] = useState<Preview | null>(null);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
-  
+
   if (!open) return null;
-  
+
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -45,7 +45,7 @@ export function UploadModal({ open, onClose, onSuccess, suggestedMonth }: Props)
     const r = await parseCsv(file);
     setPreview(r);
   }
-  
+
   async function handleUpload() {
     if (!preview || !preview.rows.length) return;
     setUploading(true);
@@ -72,9 +72,12 @@ export function UploadModal({ open, onClose, onSuccess, suggestedMonth }: Props)
         setResult({ ok: false, error: data.error || 'Error desconocido' });
       } else {
         setResult({ ok: true, stats: data.stats });
+        // FIX: el dashboard no se actualizaba solo porque el onSuccess del padre
+        // no re-consultaba los datos. Recargamos la página completa para garantizar
+        // que todo (tabla, métricas y Progreso) lea los datos nuevos de Supabase.
         setTimeout(() => {
           onSuccess();
-          onClose();
+          window.location.reload();
         }, 2500);
       }
     } catch (err: any) {
@@ -83,7 +86,7 @@ export function UploadModal({ open, onClose, onSuccess, suggestedMonth }: Props)
       setUploading(false);
     }
   }
-  
+
   return (
     <div className="ov open" onClick={onClose}>
       <div className="mo" onClick={e => e.stopPropagation()}>
@@ -107,7 +110,7 @@ export function UploadModal({ open, onClose, onSuccess, suggestedMonth }: Props)
               </select>
             </div>
           </div>
-          
+
           {/* File input */}
           <div className="ms">
             <div className="mst">Archivo CSV</div>
@@ -121,7 +124,7 @@ export function UploadModal({ open, onClose, onSuccess, suggestedMonth }: Props)
               Formato esperado: 19 columnas con Id, País, Nombre Psic, etc.
             </div>
           </div>
-          
+
           {/* Preview de errores */}
           {preview && preview.errors.length > 0 && (
             <div className="ms">
@@ -133,7 +136,7 @@ export function UploadModal({ open, onClose, onSuccess, suggestedMonth }: Props)
               </div>
             </div>
           )}
-          
+
           {/* Preview OK */}
           {preview && preview.errors.length === 0 && (
             <div className="ms">
@@ -152,7 +155,7 @@ export function UploadModal({ open, onClose, onSuccess, suggestedMonth }: Props)
               </div>
             </div>
           )}
-          
+
           {/* Resultado */}
           {result && (
             <div className="ms">
@@ -161,11 +164,12 @@ export function UploadModal({ open, onClose, onSuccess, suggestedMonth }: Props)
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--v)', marginBottom: 6 }}>✓ Carga exitosa</div>
                   <div style={{ fontSize: 11, color: 'var(--t2)' }}>
                     Total procesado: <strong>{result.stats.total_csv}</strong><br/>
-                    🆕 Nuevos: <strong>{result.stats.nuevos}</strong> · 
-                    🔄 Reactivados: <strong>{result.stats.reactivados}</strong> · 
-                    ⬇ Bajas: <strong>{result.stats.bajas}</strong> · 
+                    🆕 Nuevos: <strong>{result.stats.nuevos}</strong> ·
+                    🔄 Reactivados: <strong>{result.stats.reactivados}</strong> ·
+                    ⬇ Bajas: <strong>{result.stats.bajas}</strong> ·
                     ✏ Actualizados: <strong>{result.stats.actualizados}</strong>
                   </div>
+                  <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 6 }}>Actualizando dashboard…</div>
                 </div>
               ) : (
                 <div style={{ background: 'rgba(240,82,82,.1)', border: '1px solid rgba(240,82,82,.3)', borderRadius: 6, padding: 10 }}>
@@ -175,7 +179,7 @@ export function UploadModal({ open, onClose, onSuccess, suggestedMonth }: Props)
               )}
             </div>
           )}
-          
+
           {/* Botón submit */}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button className="btn" onClick={onClose} style={{ flex: 1 }}>Cancelar</button>
