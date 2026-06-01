@@ -36,13 +36,15 @@ export function ProgressView({ pais }: Props) {
     let mounted = true;
     async function load() {
       const sb = getSupabase();
-      const { data: months } = await sb
-        .from('therapist_state')
-        .select('month')
-        .order('month', { ascending: true })
-        .limit(10000);
-      if (!months || !mounted) return;
-      const uniqueMonths = Array.from(new Set(months.map((m: any) => m.month))) as string[];
+
+      // FIX: traer los meses distintos vía RPC en vez de SELECT month sobre
+      // toda la tabla. PostgREST corta a ~1000 filas por request, así que el
+      // SELECT anterior (ascendente + .limit(10000)) dejaba afuera el mes más
+      // nuevo cuando therapist_state superaba 1000 filas. La RPC get_state_months()
+      // devuelve solo los meses distintos (4 filas) y nunca se corta.
+      const { data: months, error: monthsErr } = await sb.rpc('get_state_months');
+      if (monthsErr || !months || !mounted) return;
+      const uniqueMonths = (months as { month: string }[]).map((m) => m.month);
 
       let countryIds: Set<string> | null = null;
       if (pais !== 'T') {
