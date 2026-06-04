@@ -8,14 +8,16 @@
 // Un terapeuta puede tener varias situaciones simultáneas
 // (ej: "Baja retención" + "Cancelaciones").
 //
-// Las situaciones VERDES son mutuamente excluyentes con las otras
-// (un terapeuta en estado "Top performer" no debería tener
-//  ninguna situación de problemas activa).
+// Las situaciones VERDES son mutuamente excluyentes con las otras.
 // ============================================================
 
 import type { SituacionId } from './constants-matrix';
 import { UMBRALES } from './constants-matrix';
 import type { Cuadrante, Tendencia } from './types';
+
+// Mejora 1 (capa 2): meses de vacaciones donde "pierde pacientes netos"
+// genera falsos positivos por altas/pausas estacionales. Ajustable.
+const MESES_ESTACIONALES = [1, 7, 12]; // enero, julio, diciembre
 
 // ===== DATOS DE ENTRADA =====
 
@@ -43,9 +45,12 @@ export interface DetectarInput {
   regAnt: number | null;
   sesAnt: number | null;
 
-  // Para benchmark de "Recibe pero no convierte"
+  // Para benchmark de conversión (Mejora 6)
   // Es el promedio del país de conversión (pacientes nuevos / registros)
   benchmarkConversionPais: number; // ej 0.094 para AR, 0.161 para UY
+
+  // Mejora 1 (capa 2): mes del período procesado (1-12) para filtro estacional
+  mesActual: number;
 }
 
 // ===== DETECTOR PRINCIPAL =====
@@ -54,8 +59,6 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   const situaciones: SituacionId[] = [];
 
   // === 1. RECIÉN INGRESADO === (<30 días)
-  // Cuando es recién ingresado, NO se aplican otras reglas operativas.
-  // Solo este flag y eventualmente "Arrancando bien" si viene fuerte.
   if (d.diasPlataforma < UMBRALES.RECIEN_INGRESADO_DIAS) {
     situaciones.push('recien_ingresado');
     if (esArrancandoBien(d)) situaciones.push('arrancando_bien');
@@ -63,23 +66,18 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   }
 
   // === 2. SIN ACTIVIDAD SOSTENIDA === (>30 días sin sesión, consolidado)
-  // Equivale al "irrecuperable" del modelo viejo.
   if (esSinActividadSostenida(d)) {
     situaciones.push('sin_actividad_sostenida');
-    // Si está acá, no agregamos otras situaciones (ya está en lo más grave)
     return situaciones;
   }
 
   // === 3. EN ABANDONO === (<6m + 0 sesiones + tendencia sin act/bajando)
   if (esEnAbandono(d)) {
     situaciones.push('en_abandono');
-    // Si está acá, no agregamos otras (también es muy grave)
     return situaciones;
   }
 
   // === 4. VENTANA 45-55 días ===
-  // Es un estado especial por su momento temporal.
-  // Se activa una variante según rendimiento.
   if (d.diasPlataforma >= UMBRALES.VENTANA_INICIO_DIAS &&
       d.diasPlataforma <= UMBRALES.VENTANA_FIN_DIAS) {
     if (d.sesMes === 0) {
@@ -89,7 +87,6 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
     } else if (esVentanaVieneBien(d)) {
       situaciones.push('ventana_45_55_viene_bien');
     }
-    // No retornamos: pueden coexistir con otras (ej: cancelaciones)
   }
 
   // === 5. ALERTA DE ARRANQUE === (<6m + pocas ses + arrancando/bajando)
@@ -98,15 +95,15 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   }
 
   // === 6. PIERDE PACIENTES NETOS ===
-  // Recibió registros este mes pero tiene menos pacientes que el mes anterior
   if (esPierdePacientesNetos(d)) {
     situaciones.push('pierde_pacientes_netos');
   }
 
-  // === 7. RECIBE PERO NO CONVIERTE ===
-  // Recibe registros pero la conversión está abajo del 50% del benchmark
-  if (esRecibeNoConvierte(d)) {
-    situaciones.push('recibe_no_convierte');
+  // === 7. CONVERSIÓN (Mejora 6: dividido en dos) ===
+  // sin_conversion (dp <= 0) → Meet · conversion_baja (dp > 0 pero < benchmark) → WhatsApp
+  const conv = clasificarConversion(d);
+  if (conv) {
+    situaciones.push(conv);
   }
 
   // === 8. BAJA RETENCIÓN === (promedio ses por paciente < 2.0)
@@ -119,13 +116,12 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
     situaciones.push('sin_horarios_cargados');
   }
 
-  // === 10. CANCELACIONES === (tasa > 20%)
+  // === 10. CANCELACIONES === (tasa > umbral)
   if (esCancelaciones(d)) {
     situaciones.push('cancelaciones');
   }
 
   // === 11. TOP PERFORMER ===
-  // Cuadrante A subiendo o estable, SIN otras alertas
   if (esTopPerformer(d) && situaciones.length === 0) {
     situaciones.push('top_performer');
     return situaciones;
@@ -152,7 +148,6 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
 // Si Talent quiere cambiar un criterio, se cambia ACÁ.
 
 function esSinActividadSostenida(d: DetectarInput): boolean {
-  // Equivale a irrecuperable del modelo viejo: >30 días sin sesión consolidado
   const dias = d.diasSinSesion ?? 0;
   return d.diasPlataforma >= 30 && (
     (d.sesMes === 0 && d.tendencia === 'sin actividad') ||
@@ -168,7 +163,6 @@ function esEnAbandono(d: DetectarInput): boolean {
 }
 
 function esVentanaPocaActividad(d: DetectarInput): boolean {
-  // En ventana, con poca actividad relativa
   return d.sesMes > 0 && d.sesMes <= 5;
 }
 
@@ -183,38 +177,44 @@ function esAlertaArranque(d: DetectarInput): boolean {
 }
 
 function esPierdePacientesNetos(d: DetectarInput): boolean {
-  // Recibió registros este mes Y tiene menos pacientes que el mes anterior
+  // Mejora 1 (capa 2): en meses de vacaciones no marcamos esta situación.
+  if (MESES_ESTACIONALES.includes(d.mesActual)) return false;
+
   const recibioRegistros = d.regMes > 0;
-  const tienemenosPacientes = d.pacAnt !== null && d.pacMes < d.pacAnt;
-  return recibioRegistros && tienemenosPacientes;
+  const tieneMenosPacientes = d.pacAnt !== null && d.pacMes < d.pacAnt;
+
+  // Mejora 1 (capa 1): solo es problema real si además retiene mal.
+  // Si retiene bien (sp3 >= 2.5), la baja es probable alta clínica, no abandono.
+  const retieneMal = d.sesPaciente3m < 2.5;
+
+  return recibioRegistros && tieneMenosPacientes && retieneMal;
 }
 
-function esRecibeNoConvierte(d: DetectarInput): boolean {
+// Mejora 6: reemplaza a esRecibeNoConvierte.
+// Devuelve cuál de las dos situaciones aplica, o null si ninguna.
+function clasificarConversion(d: DetectarInput): 'sin_conversion' | 'conversion_baja' | null {
   // Necesitamos historial del mes anterior para juzgar conversión.
-  // Si es nuevo (sin mes anterior), no aplica esta situación.
-  if (d.regAnt == null || d.pacAnt == null) return false;
+  if (d.regAnt == null || d.pacAnt == null) return null;
+  // Sin registros este mes: no hay nada que convertir.
+  if (d.regMes === 0) return null;
 
-  // Necesitamos registros en ambos meses para que el ratio sea significativo
-  if (d.regMes === 0 || d.regAnt === 0) return false;
+  // dp = pacientes nuevos netos del mes
+  const nuevosMes = Math.max(0, d.pacMes - d.pacAnt);
 
-  // Conversión del mes actual: pacientes nuevos / registros del mes
-  const nuevosMesActual = Math.max(0, d.pacMes - d.pacAnt);
-  const conversionMesActual = nuevosMesActual / d.regMes;
+  // Sin conversión: recibió registros y no sumó ningún paciente neto.
+  if (nuevosMes === 0) return 'sin_conversion';
 
-  // Conversión del mes anterior: aproximada como pacAnt / regAnt
-  const conversionMesAnt = d.pacAnt / d.regAnt;
+  // Conversión baja: convirtió, pero por debajo del benchmark del país.
+  // (Mejora 6: umbral = benchmark a secas, sin el /2 ni el ×0.7 anterior.)
+  const conversionMes = nuevosMes / d.regMes;
+  if (conversionMes < d.benchmarkConversionPais) return 'conversion_baja';
 
-  // Promedio simple de las dos conversiones
-  const conversionPromedio = (conversionMesActual + conversionMesAnt) / 2;
-
-  // Threshold: 70% del benchmark del país
-  // AR: 0.094 × 0.7 = 0.0658 (6.58%)
-  // UY: 0.161 × 0.7 = 0.1127 (11.27%)
-  return conversionPromedio < (d.benchmarkConversionPais * 0.7);
+  return null;
 }
-
 
 function esBajaRetencion(d: DetectarInput): boolean {
+  // Mejora 4: no medir retención antes de tener recorrido (< 90 días).
+  if (d.diasPlataforma < UMBRALES.RETENCION_MIN_DIAS) return false;
   return d.sesPaciente3m > 0 && d.sesPaciente3m < UMBRALES.BAJA_RETENCION_SES_PACIENTE;
 }
 
