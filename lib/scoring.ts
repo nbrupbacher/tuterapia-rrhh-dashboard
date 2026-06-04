@@ -52,6 +52,9 @@ export function calcScore(
   // NUEVO: contador del mes anterior por terapeuta (para lógica temporal)
   mesesEnSituacionPrevio: Record<string, number> = {},
   diasSinSesion: number | null = null,
+  // Mejora 1 (capa 2): mes del período procesado (1-12) para filtro estacional.
+  // OJO reprocesos: el llamador DEBE pasar el mes del período, no el del sistema.
+  mesActual: number = new Date().getMonth() + 1,
 ): ScoreResult {
   const cv = TARIFAS[pais];
   const { sm, pm, rm } = cur;
@@ -118,7 +121,7 @@ export function calcScore(
     esRecien ? (score >= 70 ? 'Verde' : 'Amarillo') :
     (score >= 70 ? 'Verde' : score >= 45 ? 'Amarillo' : 'Rojo');
 
-  // ============ MATRIX (NUEVO) ============
+  // ============ MATRIX ============
   const situaciones = detectarSituaciones({
     diasPlataforma: diasPlat,
     pais,
@@ -136,12 +139,12 @@ export function calcScore(
     regAnt: prev?.rm ?? null,
     sesAnt: prev?.sm ?? null,
     benchmarkConversionPais: TSA[pais],
+    mesActual,
   });
 
   const resultadoAcciones = calcularAcciones(situaciones, mesesEnSituacionPrevio);
 
   // ============ Videollamada ============
-  // Se mantiene del modelo viejo: bandera para terapeutas en ventana 45-55 con problemas
   const videollamada = (diasPlat >= 45 && diasPlat <= 55) &&
                         (zona === 'Rojo' || zona === 'Amarillo');
 
