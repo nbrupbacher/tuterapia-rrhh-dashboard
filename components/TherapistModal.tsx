@@ -8,7 +8,6 @@ import {
   usd, ganHist,
 } from '@/lib/helpers';
 import { ACCION_INMEDIATA, ACCION_TEMPORAL, ordenarSituacionesPorGravedad } from '@/lib/constants-matrix';
-import { PDESC } from '@/lib/constants';
 import { fetchNotes, addNote, deleteNote, type Note } from '@/lib/notes';
 
 interface Props {
@@ -16,6 +15,14 @@ interface Props {
   userEmail?: string;
   onClose: () => void;
 }
+
+// PDESC inline para no depender de @/lib/constants mientras resolvemos el duplicado
+const PDESC: Record<string, string> = {
+  A: 'Ganancia por encima de la mediana del país y promedio de sesiones mayor a 2.0. Los pacientes vuelven con regularidad. Máximo perfil actual.',
+  B: 'Genera ganancia pero promedio de sesiones por debajo de 2.0. Los pacientes no vuelven con regularidad. La ganancia puede caer.',
+  C: 'Buen promedio de sesiones pero ganancia debajo de la mediana. Tiene calidad, le falta volumen. Necesita más pacientes.',
+  D: 'Ganancia baja y promedio de sesiones menor a 2.0. Bajo volumen y baja retención. Requiere intervención directa.',
+};
 
 // Descripciones de cada situación (para mostrar contexto en el modal)
 const SDESC: Record<string, (t: TherapistView) => string> = {
@@ -27,11 +34,12 @@ const SDESC: Record<string, (t: TherapistView) => string> = {
   ventana_45_55_poca_actividad: (t) => `En ventana 45-55 días con poca actividad (${t.sesMes ?? 0} sesiones este mes). Conviene Meet para entender qué está pasando.`,
   ventana_45_55_sin_actividad: () => 'En ventana 45-55 días sin sesiones. Conversación urgente para evaluar continuidad temprana.',
   baja_retencion: (t) => `Promedio de sesiones por paciente últimos 3m: ${(t.sesPaciente3m ?? 0).toFixed(2)} (umbral: 2.0). Los pacientes no vuelven con regularidad.`,
-  sin_horarios_cargados: () => 'Sin horas disponibles cargadas. Los pacientes no pueden agendarse. Solicitar actualización del perfil.',
+  sin_horarios_cargados: () => 'Sin horas disponibles cargadas. Los pacientes no pueden agendarse. Se dispara mail automático desde la plataforma (no requiere acción del equipo).',
   cancelaciones: (t) => `Tasa de cancelación: ${Math.round((t.tasaCancelMes ?? 0) * 100)}% (umbral: 20%). Afecta experiencia del paciente y score.`,
-  alerta_arranque: () => 'Menos de 6 meses con muy pocas sesiones y tendencia floja. Conviene contacto temprano para identificar bloqueos.',
-  recibe_no_convierte: () => 'Recibe registros pero la conversión está por debajo del 50% del benchmark del país. Tiene demanda pero no la aprovecha.',
-  pierde_pacientes_netos: (t) => `Recibió ${t.regMes ?? 0} registros este mes pero tiene menos pacientes que el mes anterior. Si persiste, se activa Fantasmear automáticamente.`,
+  alerta_arranque: () => 'Lleva entre 3 y 6 meses haciendo 2-3 sesiones de forma consistente, sin crecer. No está arrancando: está estancado. Conviene contacto para destrabar el crecimiento.',
+  sin_conversion: () => 'Recibe registros pero no sumó ningún paciente nuevo este mes. El problema está en el primer contacto (no responde, no agenda, o la primera sesión no engancha). Conviene Meet para diagnosticar.',
+  conversion_baja: () => 'Convierte registros en pacientes, pero por debajo del benchmark del país. La máquina funciona, solo le falta afinarla. Conversación liviana por WhatsApp.',
+  pierde_pacientes_netos: (t) => `Recibió ${t.regMes ?? 0} registros este mes pero tiene menos pacientes que el mes anterior, y retiene por debajo de 2.5. Si persiste, se activa Fantasmear automáticamente.`,
   en_abandono: () => 'Menos de 6 meses sin sesiones este mes y tendencia sin actividad o bajando. Si persiste 3 meses, se evalúa continuidad.',
   sin_actividad_sostenida: () => 'Más de 30 días sin sesión. Sin actividad consolidada. Si persiste 3 meses, se evalúa continuidad.',
 };
@@ -138,7 +146,7 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
                 <div style={{ display: 'flex', alignItems: 'center', minHeight: 18 }}>
                   <span style={{ fontFamily: 'var(--m)', fontSize: 11, color: 'var(--t2)' }}>📱 {formatPhone(r.telefono)}</span>
                   {whatsapp && (
-                    <a
+                    
                       href={whatsapp}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -324,45 +332,4 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
                   onChange={(e) => setNewNote(e.target.value)}
                   placeholder="Agregar una nota..."
                   rows={2}
-                  style={{ flex: 1, background: 'var(--bg2)', border: '1px solid var(--bd)', borderRadius: 5, padding: 6, color: 'var(--t)', fontFamily: 'var(--f)', fontSize: 12, resize: 'vertical' }}
-                />
-                <button
-                  onClick={handleAdd}
-                  disabled={!newNote.trim() || saving}
-                  style={{ alignSelf: 'flex-end', padding: '6px 12px', background: 'var(--ac)', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f)', fontWeight: 600 }}
-                >
-                  {saving ? '...' : 'Agregar'}
-                </button>
-              </div>
-              {notes.length === 0 ? (
-                <p style={{ fontSize: 11, color: 'var(--t3)', fontStyle: 'italic' }}>Sin notas todavía</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {notes.map(n => (
-                    <div key={n.id} style={{ background: 'var(--bg2)', border: '1px solid var(--bd)', borderRadius: 5, padding: 8 }}>
-                      <p style={{ fontSize: 12, color: 'var(--t)', lineHeight: 1.4, marginBottom: 5, whiteSpace: 'pre-wrap' }}>
-                        {n.contenido?.text || ''}
-                      </p>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, color: 'var(--t3)' }}>
-                        <span>
-                          {n.autor || 'anónimo'} · {new Date(n.created_at).toLocaleDateString('es-AR')}
-                        </span>
-                        <button
-                          onClick={() => handleDelete(n.id)}
-                          style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', fontSize: 10, padding: '2px 4px' }}
-                          title="Borrar"
-                        >
-                          🗑
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+                  style={{ flex: 1, background: 'var(--bg2)', border: '1px solid var(--bd)', borderRadius: 5, pad
