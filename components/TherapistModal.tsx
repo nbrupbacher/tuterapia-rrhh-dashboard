@@ -146,7 +146,7 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
                 <div style={{ display: 'flex', alignItems: 'center', minHeight: 18 }}>
                   <span style={{ fontFamily: 'var(--m)', fontSize: 11, color: 'var(--t2)' }}>📱 {formatPhone(r.telefono)}</span>
                   {whatsapp && (
-                    
+                    <a
                       href={whatsapp}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -332,4 +332,45 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
                   onChange={(e) => setNewNote(e.target.value)}
                   placeholder="Agregar una nota..."
                   rows={2}
-                  style={{ flex: 1, background: 'var(--bg2)', border: '1px solid var(--bd)', borderRadius: 5, pad
+                  style={{ flex: 1, background: 'var(--bg2)', border: '1px solid var(--bd)', borderRadius: 5, padding: 6, color: 'var(--t)', fontFamily: 'var(--f)', fontSize: 12, resize: 'vertical' }}
+                />
+                <button
+                  onClick={handleAdd}
+                  disabled={!newNote.trim() || saving}
+                  style={{ alignSelf: 'flex-end', padding: '6px 12px', background: 'var(--ac)', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f)', fontWeight: 600 }}
+                >
+                  {saving ? '...' : 'Agregar'}
+                </button>
+              </div>
+              {notes.length === 0 ? (
+                <p style={{ fontSize: 11, color: 'var(--t3)', fontStyle: 'italic' }}>Sin notas todavía</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {notes.map(n => (
+                    <div key={n.id} style={{ background: 'var(--bg2)', border: '1px solid var(--bd)', borderRadius: 5, padding: 8 }}>
+                      <p style={{ fontSize: 12, color: 'var(--t)', lineHeight: 1.4, marginBottom: 5, whiteSpace: 'pre-wrap' }}>
+                        {n.contenido?.text || ''}
+                      </p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, color: 'var(--t3)' }}>
+                        <span>
+                          {n.autor || 'anónimo'} · {new Date(n.created_at).toLocaleDateString('es-AR')}
+                        </span>
+                        <button
+                          onClick={() => handleDelete(n.id)}
+                          style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', fontSize: 10, padding: '2px 4px' }}
+                          title="Borrar"
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
