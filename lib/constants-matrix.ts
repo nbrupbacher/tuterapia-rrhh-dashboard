@@ -1,7 +1,7 @@
 // ============================================================
 // MATRIX TU TERAPIA — CATÁLOGO CENTRAL
 // ============================================================
-// Define las 14 situaciones, las 7 acciones, sus colores,
+// Define las situaciones, las acciones, sus colores,
 // y los mapeos entre situaciones y acciones.
 //
 // Cualquier cambio de nombres, colores, prioridades o triggers
@@ -22,11 +22,12 @@ export type SituacionId =
   | 'ventana_45_55_sin_actividad'
   // Amarillas (alertas tempranas)
   | 'baja_retencion'
+  | 'conversion_baja'
   | 'sin_horarios_cargados'
   | 'cancelaciones'
   // Naranjas (operativas)
   | 'alerta_arranque'
-  | 'recibe_no_convierte'
+  | 'sin_conversion'
   | 'pierde_pacientes_netos'
   // Rojas (críticas)
   | 'en_abandono'
@@ -39,7 +40,8 @@ export type AccionId =
   | 'whatsapp'
   | 'fantasmear'
   | 'evaluar_continuidad'
-  | 'continua';
+  | 'continua'
+  | 'mail_horarios';
 
 export type ColorSituacion = 'verde' | 'azul' | 'amarillo' | 'naranja' | 'rojo';
 
@@ -58,11 +60,12 @@ export const SITUACIONES: Record<SituacionId, SituacionDef> = {
   sin_actividad_sostenida: { id: 'sin_actividad_sostenida', label: 'Sin actividad sostenida',     color: 'rojo',     prioridad: 1 },
   // NARANJAS — prioridad 2
   pierde_pacientes_netos: { id: 'pierde_pacientes_netos', label: 'Pierde pacientes netos',          color: 'naranja',  prioridad: 2 },
-  recibe_no_convierte:   { id: 'recibe_no_convierte',   label: 'Recibe pero no convierte',          color: 'naranja',  prioridad: 2 },
-  alerta_arranque:       { id: 'alerta_arranque',       label: 'Alerta de arranque',                color: 'naranja',  prioridad: 2 },
+  sin_conversion:        { id: 'sin_conversion',        label: 'Sin conversión',                    color: 'naranja',  prioridad: 2 },
+  alerta_arranque:       { id: 'alerta_arranque',       label: 'Crecimiento estancado',             color: 'naranja',  prioridad: 2 },
   // AMARILLAS — prioridad 3
   cancelaciones:         { id: 'cancelaciones',         label: 'Cancelaciones',                     color: 'amarillo', prioridad: 3 },
   baja_retencion:        { id: 'baja_retencion',        label: 'Baja retención',                    color: 'amarillo', prioridad: 3 },
+  conversion_baja:       { id: 'conversion_baja',       label: 'Conversión baja',                   color: 'amarillo', prioridad: 3 },
   sin_horarios_cargados: { id: 'sin_horarios_cargados', label: 'Sin horarios cargados',             color: 'amarillo', prioridad: 3 },
   // AZULES — prioridad 4 (ventana 45-55)
   ventana_45_55_sin_actividad: { id: 'ventana_45_55_sin_actividad', label: 'Ventana 45-55 · sin actividad', color: 'azul', prioridad: 4 },
@@ -92,6 +95,7 @@ export const ACCIONES: Record<AccionId, AccionDef> = {
   fantasmear:         { id: 'fantasmear',           label: 'Fantasmear',           icon: '👻', prioridad: 5 },
   destacado:          { id: 'destacado',            label: 'Destacado',            icon: '⭐', prioridad: 6 },
   continua:           { id: 'continua',             label: 'Continúa',             icon: '✓',  prioridad: 7 },
+  mail_horarios:      { id: 'mail_horarios',        label: 'Mail horarios (auto)', icon: '📅', prioridad: 8 },
 };
 
 // ===== MAPEO SITUACIÓN → ACCIÓN PRINCIPAL =====
@@ -109,11 +113,12 @@ export const ACCION_INMEDIATA: Record<SituacionId, AccionId> = {
   ventana_45_55_sin_actividad:  'meet',
   // Amarillas
   baja_retencion:               'retencion',
-  sin_horarios_cargados:        'whatsapp',
+  conversion_baja:              'whatsapp',       // Mejora 6
+  sin_horarios_cargados:        'mail_horarios',  // Mejora 2 (era 'whatsapp')
   cancelaciones:                'whatsapp',
   // Naranjas
   alerta_arranque:              'whatsapp',
-  recibe_no_convierte:          'meet',
+  sin_conversion:               'meet',           // Mejora 6 (era 'recibe_no_convierte')
   pierde_pacientes_netos:       'retencion',
   // Rojas
   en_abandono:                  'whatsapp',
@@ -137,12 +142,12 @@ export const ACCION_TEMPORAL: Partial<Record<SituacionId, EscaladaTemporal>> = {
 
 // ===== UMBRALES DE NEGOCIO =====
 // Centralizados acá para que sean fácil de ajustar.
-// Si Talent decide en el futuro que "baja retención" se mide con 1.8 en vez de 2.0,
-// solo cambian este número.
 
 export const UMBRALES = {
   // Baja retención: promedio de sesiones por paciente 3m
   BAJA_RETENCION_SES_PACIENTE: 2.0,
+  // Mejora 4: no medir retención antes de N días en plataforma
+  RETENCION_MIN_DIAS: 90,
   // Cancelaciones: tasa de canceladas / creadas
   CANCELACIONES_TASA: 0.20,
   // Sin actividad sostenida: días sin sesión
