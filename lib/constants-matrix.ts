@@ -175,16 +175,22 @@ export const COLOR_CLS: Record<ColorSituacion, string> = {
 };
 
 // ===== HELPER: ordenar situaciones por prioridad =====
+// Filtra ids que no existan en el catálogo (datos viejos con situaciones
+// ya eliminadas, ej: 'recibe_no_convierte') para no romper el dashboard.
 
 export function ordenarSituacionesPorGravedad(ids: SituacionId[]): SituacionId[] {
-  return [...ids].sort((a, b) => SITUACIONES[a].prioridad - SITUACIONES[b].prioridad);
+  return [...ids]
+    .filter((id) => SITUACIONES[id] != null)
+    .sort((a, b) => SITUACIONES[a].prioridad - SITUACIONES[b].prioridad);
 }
 
 // ===== HELPER: obtener la acción más grave de un set =====
+// También filtra acciones desconocidas por seguridad.
 
 export function accionMasGrave(acciones: AccionId[]): AccionId {
-  if (acciones.length === 0) return 'continua';
-  return acciones.reduce((min, a) =>
+  const validas = acciones.filter((a) => ACCIONES[a] != null);
+  if (validas.length === 0) return 'continua';
+  return validas.reduce((min, a) =>
     ACCIONES[a].prioridad < ACCIONES[min].prioridad ? a : min
-  , acciones[0]);
+  , validas[0]);
 }
