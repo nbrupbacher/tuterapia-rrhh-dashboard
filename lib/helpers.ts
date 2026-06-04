@@ -116,6 +116,7 @@ export function accionBadge(id: AccionId): { cls: string; label: string; icon: s
     fantasmear:          'acc-fantasmear',
     destacado:           'acc-destacado',
     continua:            'acc-continua',
+    mail_horarios:       'acc-continua',
   };
   return {
     cls: clsMap[id],
