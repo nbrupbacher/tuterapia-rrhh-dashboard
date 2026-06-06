@@ -105,9 +105,11 @@ export function topSituaciones(situaciones: SituacionId[], max = 2): SituacionId
   return ordenarSituacionesPorGravedad(situaciones).slice(0, max);
 }
 
-export function accionBadge(id: AccionId): { cls: string; label: string; icon: string } {
-  const def = ACCIONES[id];
-  // Mapeo de clase CSS según ID
+export function accionBadge(id: AccionId | string): { cls: string; label: string; icon: string } {
+  if (id === 'meet_hecha') return { cls: 'acc-meet-hecha', icon: '📹', label: 'Meet hecha · esperar' };
+  if (id === 'whatsapp_hecha') return { cls: 'acc-wa-hecha', icon: '📱', label: 'WhatsApp hecha · esperar' };
+  const def = ACCIONES[id as AccionId];
+  if (!def) return { cls: 'acc-continua', icon: '✓', label: id };
   const clsMap: Record<AccionId, string> = {
     evaluar_continuidad: 'acc-evaluar',
     whatsapp:            'acc-whatsapp',
@@ -119,7 +121,7 @@ export function accionBadge(id: AccionId): { cls: string; label: string; icon: s
     mail_horarios:       'acc-continua',
   };
   return {
-    cls: clsMap[id],
+    cls: clsMap[id as AccionId],
     label: def.label,
     icon: def.icon,
   };

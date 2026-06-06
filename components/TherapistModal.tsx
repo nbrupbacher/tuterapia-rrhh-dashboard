@@ -9,11 +9,15 @@ import {
 } from '@/lib/helpers';
 import { ACCION_INMEDIATA, ACCION_TEMPORAL, ordenarSituacionesPorGravedad } from '@/lib/constants-matrix';
 import { fetchNotes, addNote, deleteNote, type Note } from '@/lib/notes';
+import { markIntervention, unmarkIntervention, fetchTherapistInterventions } from '@/lib/interventions';
+import type { Intervention } from '@/lib/types';
 
 interface Props {
   therapist: TherapistView | null;
   userEmail?: string;
+  currentMonth?: string;
   onClose: () => void;
+  onInterventionChange?: () => void;
 }
 
 // PDESC inline para no depender de @/lib/constants mientras resolvemos el duplicado
@@ -62,16 +66,47 @@ function formatPhone(phone: string | null): string {
   return phone;
 }
 
-export function TherapistModal({ therapist, userEmail, onClose }: Props) {
+export function TherapistModal({ therapist, userEmail, currentMonth, onClose, onInterventionChange }: Props) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNote, setNewNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [meetIntervention, setMeetIntervention] = useState<Intervention | null>(null);
+  const [waIntervention, setWaIntervention] = useState<Intervention | null>(null);
+  const [ivLoading, setIvLoading] = useState(false);
 
   useEffect(() => {
     if (!therapist) return;
     fetchNotes(therapist.id).then(setNotes);
+    fetchTherapistInterventions(therapist.id).then((ivs) => {
+      setMeetIntervention(ivs.find(i => i.type === 'meet') || null);
+      setWaIntervention(ivs.find(i => i.type === 'whatsapp') || null);
+    });
   }, [therapist]);
+
+  async function toggleIntervention(type: 'meet' | 'whatsapp') {
+    if (!therapist || ivLoading) return;
+    setIvLoading(true);
+    const existing = type === 'meet' ? meetIntervention : waIntervention;
+    if (existing) {
+      const ok = await unmarkIntervention(existing.id);
+      if (ok) {
+        if (type === 'meet') setMeetIntervention(null);
+        else setWaIntervention(null);
+        onInterventionChange?.();
+      }
+    } else {
+      const iv = await markIntervention(
+        therapist.id, type, currentMonth || '2026-05', therapist.score, userEmail
+      );
+      if (iv) {
+        if (type === 'meet') setMeetIntervention(iv);
+        else setWaIntervention(iv);
+        onInterventionChange?.();
+      }
+    }
+    setIvLoading(false);
+  }
 
   if (!therapist) return null;
   const r = therapist;
@@ -124,7 +159,24 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
     <div className="ov open" onClick={onClose}>
       <div className="mo" onClick={e => e.stopPropagation()}>
         <div className="mh">
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="mh-right" style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>
+            <button
+              className={`iv-btn iv-btn-meet${meetIntervention ? ' active' : ''}`}
+              onClick={() => toggleIntervention('meet')}
+              disabled={ivLoading}
+            >
+              {meetIntervention ? '✓ Meet realizado' : '📹 Meet'}
+            </button>
+            <button
+              className={`iv-btn iv-btn-wa${waIntervention ? ' active' : ''}`}
+              onClick={() => toggleIntervention('whatsapp')}
+              disabled={ivLoading}
+            >
+              {waIntervention ? '✓ WhatsApp enviado' : '📱 WhatsApp'}
+            </button>
+            <button className="mcl" onClick={onClose}>✕</button>
+          </div>
+          <div style={{ flex: 1, minWidth: 0, order: -1 }}>
             <div className="mn2">{r.nombre}</div>
             <div className="mm">
               {r.pais} · {segmento(r.dias)} · Alta: {r.inicio || '—'}
@@ -159,9 +211,18 @@ export function TherapistModal({ therapist, userEmail, onClose }: Props) {
               )}
             </div>
           </div>
-          <button className="mcl" onClick={onClose}>✕</button>
         </div>
 
+        {(meetIntervention || waIntervention) && (() => {
+          const iv = meetIntervention || waIntervention!;
+          return (
+            <div className="iv-status">
+              <b>Intervenido vía {iv.type === 'meet' ? 'Meet' : 'WhatsApp'}</b>
+              {' · '}{formatPhone(iv.intervention_date)}
+              {' · '}No vuelve a pendientes hasta {iv.respect_until_month}
+            </div>
+          );
+        })()}
         <div className="mb">
 
           {/* ============ Situaciones detectadas ============ */}

@@ -1,10 +1,22 @@
 // Tipos del dominio. Coinciden con el schema de Supabase.
 
 import type { SituacionId, AccionId } from './constants-matrix';
+
+export type Intervention = {
+  id: string;
+  therapist_id: string;
+  type: 'meet' | 'whatsapp';
+  intervention_date: string;
+  marked_in_month: string;
+  respect_until_month: string;
+  score_at_intervention: number | null;
+  marked_by: string | null;
+  active: boolean;
+};
 import type { AccionPendiente } from './actions';
 
 export type Pais = 'AR' | 'UY';
-export type View = 'pred' | 'anal' | 'prog';
+export type View = 'pred' | 'anal' | 'prog' | 'interv';
 export type PaisFilter = 'T' | 'AR' | 'UY';
 // MODIFICADO PR2: tabs nuevos. IRR/OC/SEG45 removidos, CRIT/V45/DEST agregados.
 export type TabKey = 'T' | 'CRIT' | 'V45' | 'DEST' | 'NUE';
@@ -88,7 +100,7 @@ export interface TherapistView {
 
   // Capa Matrix (NUEVO PR2)
   situaciones: SituacionId[];
-  accion: AccionId;
+  accion: AccionId | 'meet_hecha' | 'whatsapp_hecha';
   accionesPendientes: AccionPendiente[];
   mesesEnSituacion: Record<string, number>;
 
@@ -111,6 +123,10 @@ export interface TherapistView {
   pacAnt: number | null;
   sesAnt: number | null;
   regAnt: number | null;
+
+  // Intervención activa (si existe)
+  intervencion?: Intervention | null;
+  evolucion?: 'mejoro' | 'igual' | 'empeoro' | null;
 }
 
 
