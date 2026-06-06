@@ -9,6 +9,7 @@ type Filtro = 'todos' | 'mejoro' | 'igual' | 'empeoro' | 'meet' | 'whatsapp';
 interface Props {
   data: TherapistView[];
   pais: PaisFilter;
+  onRowClick?: (t: TherapistView) => void;
 }
 
 function MetricCell({ label, prev, curr }: { label: string; prev: number | null; curr: number | null }) {
@@ -35,7 +36,7 @@ function MetricCell({ label, prev, curr }: { label: string; prev: number | null;
   );
 }
 
-export function IntervenidosView({ data, pais }: Props) {
+export function IntervenidosView({ data, pais, onRowClick }: Props) {
   const [filtro, setFiltro] = useState<Filtro>('todos');
 
   const base = data.filter(t => pais === 'T' || t.pais === pais);
@@ -113,7 +114,7 @@ export function IntervenidosView({ data, pais }: Props) {
             const sesPacAnt = t.sesAnt != null && t.pacAnt != null && t.pacAnt > 0
               ? (t.sesAnt / t.pacAnt).toFixed(2) : null;
             return (
-              <div key={t.id} style={{ background: 'var(--bg2)', border: '1px solid var(--bd)', borderRadius: 8, padding: '10px 14px' }}>
+              <div key={t.id} onClick={() => onRowClick?.(t)} style={{ background: 'var(--bg2)', border: '1px solid var(--bd)', borderRadius: 8, padding: '10px 14px', cursor: onRowClick ? 'pointer' : 'default', transition: 'background .1s' }} onMouseEnter={e => { if (onRowClick) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg3)'; }} onMouseLeave={e => { if (onRowClick) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg2)'; }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                   <div>
                     <span style={{ fontWeight: 600, fontSize: 13 }}>{t.nombre}</span>
