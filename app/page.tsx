@@ -287,7 +287,7 @@ export default function DashboardPage() {
         ) : view === 'prog' ? (
           <ProgressView pais={pais} />
         ) : view === 'interv' ? (
-          <IntervenidosView data={therapists.filter(t => t.intervencion != null)} pais={pais} />
+          <IntervenidosView data={therapists.filter(t => t.intervencion != null)} pais={pais} onRowClick={setSelectedTherapist} />
         ) : (
           <>
             <KpiDeltas
