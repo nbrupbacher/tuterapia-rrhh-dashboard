@@ -236,3 +236,19 @@ td { padding:6px 8px; font-size:12px; white-space:nowrap; vertical-align:middle;
 .acc-fantasmear{background:rgba(167,139,250,.1);color:var(--ar);border:1px solid rgba(167,139,250,.25)}
 .acc-destacado{background:rgba(52,211,153,.1);color:var(--v);border:1px solid rgba(52,211,153,.25)}
 .acc-continua{background:var(--bg3);color:var(--t3);border:1px solid var(--bd)}
+.acc-meet-hecha{background:var(--bg3);color:var(--t2);border:1px solid var(--bd2)}
+.acc-wa-hecha{background:var(--bg3);color:var(--t2);border:1px solid var(--bd2)}
+
+/* === Botones de intervención en modal === */
+.iv-btn{padding:6px 12px;font-size:11px;font-weight:600;border-radius:6px;cursor:pointer;font-family:var(--f);border:1px solid;transition:all .15s}
+.iv-btn:disabled{opacity:.5;cursor:default}
+.iv-btn-meet{background:rgba(56,189,248,.1);color:var(--t2);border-color:rgba(56,189,248,.4)}
+.iv-btn-meet:hover:not(:disabled){color:var(--uy)}
+.iv-btn-meet.active{background:var(--uy);color:#fff;border-color:var(--uy)}
+.iv-btn-wa{background:rgba(52,211,153,.1);color:var(--t2);border-color:rgba(52,211,153,.4)}
+.iv-btn-wa:hover:not(:disabled){color:var(--v)}
+.iv-btn-wa.active{background:var(--v);color:#fff;border-color:var(--v)}
+
+/* === Banner de status de intervención === */
+.iv-status{margin:8px 18px 0;padding:8px 12px;border-radius:6px;font-size:11px;background:var(--bg3);border:1px solid var(--bd2);color:var(--t2)}
+.iv-status b{color:var(--t)}

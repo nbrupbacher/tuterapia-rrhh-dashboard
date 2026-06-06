@@ -11,11 +11,13 @@ import { TableFilters, type FilterState } from '@/components/TableFilters';
 import { DashboardTable } from '@/components/DashboardTable';
 import { TherapistModal } from '@/components/TherapistModal';
 import { ProgressView } from '@/components/ProgressView';
+import { IntervenidosView } from '@/components/IntervenidosView';
 import { segmento } from '@/lib/helpers';
+import { fetchActiveInterventions } from '@/lib/interventions';
 import type { AccionId, SituacionId } from '@/lib/constants-matrix';
 import type {
   View, PaisFilter, TabKey, TherapistView,
-  TherapistRow, TherapistStateRow, MonthlyMetricsRow,
+  TherapistRow, TherapistStateRow, MonthlyMetricsRow, Intervention,
 } from '@/lib/types';
 
 interface PrevStats {
@@ -32,6 +34,7 @@ export default function DashboardPage() {
   const supabase = getSupabase();
 
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
   const [therapists, setTherapists] = useState<TherapistView[]>([]);
   const [currentMonth, setCurrentMonth] = useState<string>('—');
@@ -126,6 +129,12 @@ export default function DashboardPage() {
         else if (m.month === prevMonth) metricsPrev.set(m.therapist_id, m);
       });
 
+      // Fetch active interventions
+      const activeInterventions = await fetchActiveInterventions(latestMonth);
+      const interventionMap = new Map<string, Intervention>(
+        activeInterventions.map(iv => [iv.therapist_id, iv])
+      );
+
       const merged: TherapistView[] = (thRows || []).map((t: TherapistRow) => {
         const st = stateMap.get(t.id);
         const mt = metricsCurrent.get(t.id);
@@ -134,6 +143,23 @@ export default function DashboardPage() {
         const dias = inicioDate
           ? Math.floor((Date.now() - inicioDate.getTime()) / (1000 * 60 * 60 * 24))
           : 0;
+
+        const iv = interventionMap.get(t.id) || null;
+        const scoreNow = st?.score || 0;
+        let evolucion: 'mejoro' | 'igual' | 'empeoro' | null = null;
+        if (iv && iv.score_at_intervention != null && iv.marked_in_month !== latestMonth) {
+          const diff = scoreNow - iv.score_at_intervention;
+          if (diff >= 5) evolucion = 'mejoro';
+          else if (diff <= -5) evolucion = 'empeoro';
+          else evolucion = 'igual';
+        }
+
+        const rawAccion = (st?.accion as AccionId) || 'continua';
+        const riskyActions: string[] = ['meet', 'whatsapp', 'retencion', 'evaluar_continuidad'];
+        const accion: TherapistView['accion'] = iv && riskyActions.includes(rawAccion)
+          ? (iv.type === 'meet' ? 'meet_hecha' : 'whatsapp_hecha')
+          : rawAccion;
+
         return {
           id: t.id, nombre: t.nombre, pais: t.pais, email: t.email,
           telefono: t.telefono,
@@ -141,13 +167,13 @@ export default function DashboardPage() {
           regTotalHist: t.registros_totales_hist || 0,
           sesionesHist: t.sesiones_totales_hist || 0,
           pacientesHist: t.pacientes_unicos_hist || 0,
-          score: st?.score || 0,
+          score: scoreNow,
           zona: st?.zona || 'Rojo',
           cuadrante: st?.cuadrante || 'D',
           tendencia: st?.tendencia || 'sin actividad',
           // NUEVOS campos Matrix
           situaciones: (st?.situaciones as SituacionId[]) || [],
-          accion: (st?.accion as AccionId) || 'continua',
+          accion,
           accionesPendientes: (st?.acciones_pendientes as any) || [],
           mesesEnSituacion: (st?.meses_en_situacion as Record<string, number>) || {},
           // Métricas
@@ -165,17 +191,19 @@ export default function DashboardPage() {
           pacAnt: mp?.pacientes_unicos ?? null,
           sesAnt: mp?.sesiones_totales ?? null,
           regAnt: mp?.registros_mes ?? null,
+          intervencion: iv,
+          evolucion,
         };
       });
       setTherapists(merged);
       setLoading(false);
     }
     init();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e: any, session: any) => {
       if (!session) router.replace('/login');
     });
     return () => { mounted = false; subscription.unsubscribe(); };
-  }, [router, supabase]);
+  }, [router, supabase, reloadKey]);
 
   const handleLogout = useCallback(async () => {
     await supabase.auth.signOut();
@@ -198,6 +226,8 @@ export default function DashboardPage() {
         const sits = r.situaciones || [];
 
         if (tab === 'CRIT') {
+          // Excluir intervenidos del tab Críticas
+          if (r.intervencion) return false;
           // Críticas: rojas (en_abandono, sin_actividad_sostenida) + naranjas (los 3 naranja)
           const criticas = ['en_abandono','sin_actividad_sostenida','pierde_pacientes_netos','recibe_no_convierte','alerta_arranque'];
           if (!sits.some(s => criticas.includes(s))) return false;
@@ -256,6 +286,8 @@ export default function DashboardPage() {
           <div className="empty-wrap"><h3>No hay datos cargados todavía</h3></div>
         ) : view === 'prog' ? (
           <ProgressView pais={pais} />
+        ) : view === 'interv' ? (
+          <IntervenidosView data={therapists.filter(t => t.intervencion != null)} pais={pais} />
         ) : (
           <>
             <KpiDeltas
@@ -276,7 +308,13 @@ export default function DashboardPage() {
           </>
         )}
       </div>
-      <TherapistModal therapist={selectedTherapist} userEmail={userEmail} onClose={() => setSelectedTherapist(null)} />
+      <TherapistModal
+        therapist={selectedTherapist}
+        userEmail={userEmail}
+        currentMonth={currentMonth}
+        onClose={() => setSelectedTherapist(null)}
+        onInterventionChange={() => setReloadKey(k => k + 1)}
+      />
     </>
   );
 }
