@@ -236,9 +236,16 @@ function ProgCard({ title, series, labels, legend, formatY, note }: {
       </svg>
       {legend && (
         <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
-          {series.map(s => (
-            <span key={s.name} style={{ fontSize: 11, color: s.color }}>● {s.name}</span>
-          ))}
+          {series.map(s => {
+            const nombres: Record<string, string> = {
+              A: 'Alto valor', B: 'Riesgo oculto', C: 'Potencial', D: 'Intervención',
+            };
+            return (
+              <span key={s.name} style={{ fontSize: 11, color: s.color }}>
+                ● {s.name}{nombres[s.name] ? ` · ${nombres[s.name]}` : ''}
+              </span>
+            );
+          })}
         </div>
       )}
       {note && <div style={{ marginTop: 6, fontSize: 11, color: 'var(--t3)' }}>{note}</div>}
