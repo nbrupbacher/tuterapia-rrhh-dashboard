@@ -34,6 +34,8 @@ export function ProgressView({ pais }: Props) {
 
   useEffect(() => {
     let mounted = true;
+    setLoading(true);
+    setData([]);
     async function load() {
       const sb = getSupabase();
 
