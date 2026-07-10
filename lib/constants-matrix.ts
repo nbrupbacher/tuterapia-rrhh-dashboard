@@ -31,7 +31,9 @@ export type SituacionId =
   | 'pierde_pacientes_netos'
   // Rojas (críticas)
   | 'en_abandono'
-  | 'sin_actividad_sostenida';
+  | 'sin_actividad_sostenida'
+  // Grises (sin datos suficientes para evaluar)
+  | 'sin_datos_suficientes';
 
 export type AccionId =
   | 'destacado'
@@ -58,6 +60,8 @@ export const SITUACIONES: Record<SituacionId, SituacionDef> = {
   // ROJAS — prioridad 1 (más grave)
   en_abandono:           { id: 'en_abandono',           label: 'En abandono',                       color: 'rojo',     prioridad: 1 },
   sin_actividad_sostenida: { id: 'sin_actividad_sostenida', label: 'Sin actividad sostenida',     color: 'rojo',     prioridad: 1 },
+  // GRISES — prioridad 5 (sin datos suficientes)
+  sin_datos_suficientes: { id: 'sin_datos_suficientes', label: 'Sin datos suficientes',             color: 'verde',    prioridad: 5 },
   // NARANJAS — prioridad 2
   pierde_pacientes_netos: { id: 'pierde_pacientes_netos', label: 'Pierde pacientes netos',          color: 'naranja',  prioridad: 2 },
   sin_conversion:        { id: 'sin_conversion',        label: 'Sin conversión',                    color: 'naranja',  prioridad: 2 },
@@ -102,6 +106,8 @@ export const ACCIONES: Record<AccionId, AccionDef> = {
 // Cuál es la primera acción que dispara cada situación.
 
 export const ACCION_INMEDIATA: Record<SituacionId, AccionId> = {
+  // Grises
+  sin_datos_suficientes:        'continua',
   // Verdes
   top_performer:                'destacado',
   arrancando_bien:              'destacado',
@@ -161,6 +167,9 @@ export const UMBRALES = {
   VENTANA_FIN_DIAS: 55,
   // Alerta de arranque: sesiones máximas para considerar "alerta"
   ALERTA_ARRANQUE_MAX_SES: 3,
+  // Mínimo de registros históricos para poder evaluar (y potencialmente asignar meet)
+  MIN_REGISTROS_TOTAL: 20,
+  MIN_REGISTROS_AR: 30,
 };
 
 // ===== COLOR → CLASE CSS =====

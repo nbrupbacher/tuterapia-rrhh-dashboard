@@ -45,6 +45,9 @@ export interface DetectarInput {
   regAnt: number | null;
   sesAnt: number | null;
 
+  // Registros acumulados históricos (suma de todos los meses)
+  regTotalHist: number;
+
   // Para benchmark de conversión (Mejora 6)
   // Es el promedio del país de conversión (pacientes nuevos / registros)
   benchmarkConversionPais: number; // ej 0.094 para AR, 0.161 para UY
@@ -57,6 +60,14 @@ export interface DetectarInput {
 
 export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   const situaciones: SituacionId[] = [];
+
+  // === 0. SIN DATOS SUFICIENTES ===
+  // Mínimo de registros históricos para poder evaluar (y potencialmente asignar meet).
+  // Si no se alcanza el umbral, la persona aún no puede ser evaluada.
+  const minRegistros = d.pais === 'AR' ? UMBRALES.MIN_REGISTROS_AR : UMBRALES.MIN_REGISTROS_TOTAL;
+  if (d.regTotalHist < minRegistros) {
+    return ['sin_datos_suficientes'];
+  }
 
   // === 1. RECIÉN INGRESADO === (<30 días)
   if (d.diasPlataforma < UMBRALES.RECIEN_INGRESADO_DIAS) {

@@ -146,6 +146,20 @@ export async function POST(request: Request) {
     prevMesesEnSituacion.set(s.therapist_id, s.meses_en_situacion ?? {});
   });
 
+  // Registros acumulados históricos por terapeuta (todos los meses hasta el actual inclusive)
+  const therapistIds = rows.map(r => r.id);
+  const { data: allRegMetrics } = await sb.from('monthly_metrics')
+    .select('therapist_id, registros_mes')
+    .lte('month', month)
+    .in('therapist_id', therapistIds)
+    .limit(50000);
+
+  const regTotalHistMap = new Map<string, number>();
+  (allRegMetrics || []).forEach((m: any) => {
+    const prev = regTotalHistMap.get(m.therapist_id) ?? 0;
+    regTotalHistMap.set(m.therapist_id, prev + (m.registros_mes ?? 0));
+  });
+
   const targetDate = new Date(yy, mm - 1, 1);
   const lastDayOfMonthMs = new Date(yy, mm, 0).getTime();
 
@@ -181,6 +195,8 @@ export async function POST(request: Request) {
       prev2Map.get(r.id) || null,
       mesesPrevios,
       diasSinSesion,
+      undefined,
+      regTotalHistMap.get(r.id) ?? 0,
     );
 
     return {
