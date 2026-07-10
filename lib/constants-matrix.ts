@@ -162,9 +162,9 @@ export const UMBRALES = {
   VENTANA_FIN_DIAS: 55,
   // Alerta de arranque: sesiones máximas para considerar "alerta"
   ALERTA_ARRANQUE_MAX_SES: 3,
-  // Mínimo de registros históricos para poder evaluar (y potencialmente asignar meet)
-  MIN_REGISTROS_TOTAL: 20,
-  MIN_REGISTROS_AR: 30,
+  // Mínimo de registros en 3 meses para que sin_conversion dispare meet
+  MIN_REG_3M_MEET_UY: 19,
+  MIN_REG_3M_MEET_AR: 32,
 };
 
 // ===== COLOR → CLASE CSS =====

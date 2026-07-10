@@ -55,7 +55,6 @@ export function calcScore(
   // Mejora 1 (capa 2): mes del período procesado (1-12) para filtro estacional.
   // OJO reprocesos: el llamador DEBE pasar el mes del período, no el del sistema.
   mesActual: number = new Date().getMonth() + 1,
-  regTotalHist: number = 0,
 ): ScoreResult {
   const cv = TARIFAS[pais];
   const { sm, pm, rm } = cur;
@@ -141,7 +140,7 @@ export function calcScore(
     sesAnt: prev?.sm ?? null,
     benchmarkConversionPais: TSA[pais],
     mesActual,
-    regTotalHist,
+    reg3m: rT,
   });
 
   const resultadoAcciones = calcularAcciones(situaciones, mesesEnSituacionPrevio);
