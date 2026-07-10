@@ -61,13 +61,10 @@ export interface DetectarInput {
 export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   const situaciones: SituacionId[] = [];
 
-  // === 0. SIN DATOS SUFICIENTES ===
-  // Mínimo de registros históricos para poder evaluar (y potencialmente asignar meet).
-  // Si no se alcanza el umbral, la persona aún no puede ser evaluada.
+  // Mínimo de registros históricos para poder asignar meet.
+  // No bloquea otras situaciones (retención, conversión baja, etc.).
   const minRegistros = d.pais === 'AR' ? UMBRALES.MIN_REGISTROS_AR : UMBRALES.MIN_REGISTROS_TOTAL;
-  if (d.regTotalHist < minRegistros) {
-    return ['sin_datos_suficientes'];
-  }
+  const puedeRecibirMeet = d.regTotalHist >= minRegistros;
 
   // === 1. RECIÉN INGRESADO === (<30 días)
   if (d.diasPlataforma < UMBRALES.RECIEN_INGRESADO_DIAS) {
@@ -91,9 +88,9 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   // === 4. VENTANA 45-55 días ===
   if (d.diasPlataforma >= UMBRALES.VENTANA_INICIO_DIAS &&
       d.diasPlataforma <= UMBRALES.VENTANA_FIN_DIAS) {
-    if (d.sesMes === 0) {
+    if (puedeRecibirMeet && d.sesMes === 0) {
       situaciones.push('ventana_45_55_sin_actividad');
-    } else if (esVentanaPocaActividad(d)) {
+    } else if (puedeRecibirMeet && esVentanaPocaActividad(d)) {
       situaciones.push('ventana_45_55_poca_actividad');
     } else if (esVentanaVieneBien(d)) {
       situaciones.push('ventana_45_55_viene_bien');
@@ -112,9 +109,12 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
 
   // === 7. CONVERSIÓN (Mejora 6: dividido en dos) ===
   // sin_conversion (dp <= 0) → Meet · conversion_baja (dp > 0 pero < benchmark) → WhatsApp
+  // sin_conversion solo se asigna si tiene registros suficientes para poder hacer meet.
   const conv = clasificarConversion(d);
-  if (conv) {
-    situaciones.push(conv);
+  if (conv === 'sin_conversion' && puedeRecibirMeet) {
+    situaciones.push('sin_conversion');
+  } else if (conv === 'conversion_baja') {
+    situaciones.push('conversion_baja');
   }
 
   // === 8. BAJA RETENCIÓN === (promedio ses por paciente < 2.0)
