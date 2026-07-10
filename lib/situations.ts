@@ -45,8 +45,8 @@ export interface DetectarInput {
   regAnt: number | null;
   sesAnt: number | null;
 
-  // Registros acumulados históricos (suma de todos los meses)
-  regTotalHist: number;
+  // Registros últimos 3 meses (mes actual + 2 anteriores)
+  reg3m: number;
 
   // Para benchmark de conversión (Mejora 6)
   // Es el promedio del país de conversión (pacientes nuevos / registros)
@@ -61,10 +61,10 @@ export interface DetectarInput {
 export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   const situaciones: SituacionId[] = [];
 
-  // Mínimo de registros históricos para poder asignar meet.
-  // No bloquea otras situaciones (retención, conversión baja, etc.).
-  const minRegistros = d.pais === 'AR' ? UMBRALES.MIN_REGISTROS_AR : UMBRALES.MIN_REGISTROS_TOTAL;
-  const puedeRecibirMeet = d.regTotalHist >= minRegistros;
+  // sin_conversion solo dispara meet si el terapeuta recibe suficientes registros en 3m.
+  // La ventana 45-55 no tiene este requisito.
+  const minReg3m = d.pais === 'AR' ? UMBRALES.MIN_REG_3M_MEET_AR : UMBRALES.MIN_REG_3M_MEET_UY;
+  const puedeRecibirMeet = d.reg3m >= minReg3m;
 
   // === 1. RECIÉN INGRESADO === (<30 días)
   if (d.diasPlataforma < UMBRALES.RECIEN_INGRESADO_DIAS) {
@@ -88,9 +88,9 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   // === 4. VENTANA 45-55 días ===
   if (d.diasPlataforma >= UMBRALES.VENTANA_INICIO_DIAS &&
       d.diasPlataforma <= UMBRALES.VENTANA_FIN_DIAS) {
-    if (puedeRecibirMeet && d.sesMes === 0) {
+    if (d.sesMes === 0) {
       situaciones.push('ventana_45_55_sin_actividad');
-    } else if (puedeRecibirMeet && esVentanaPocaActividad(d)) {
+    } else if (esVentanaPocaActividad(d)) {
       situaciones.push('ventana_45_55_poca_actividad');
     } else if (esVentanaVieneBien(d)) {
       situaciones.push('ventana_45_55_viene_bien');
