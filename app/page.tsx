@@ -155,8 +155,7 @@ export default function DashboardPage() {
         }
 
         const rawAccion = (st?.accion as AccionId) || 'continua';
-        const riskyActions: string[] = ['meet', 'whatsapp', 'retencion', 'evaluar_continuidad'];
-        const accion: TherapistView['accion'] = iv && riskyActions.includes(rawAccion)
+        const accion: TherapistView['accion'] = iv && (rawAccion === 'meet' || rawAccion === 'whatsapp')
           ? (iv.type === 'meet' ? 'meet_hecha' : 'whatsapp_hecha')
           : rawAccion;
 
