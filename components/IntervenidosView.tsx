@@ -18,11 +18,11 @@ function MetricCell({ label, prev, curr }: { label: string; prev: number | null;
   return (
     <div className="mst2">
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-        <span style={{ fontFamily: 'var(--m)', fontSize: 11, color: 'var(--t3)' }}>
+        <span style={{ fontFamily: 'var(--m)', fontSize: 10, color: 'var(--t3)' }}>
           {prev != null ? prev : '—'}
         </span>
-        <span style={{ fontSize: 9, color: 'var(--t3)' }}>→</span>
-        <span style={{ fontFamily: 'var(--m)', fontSize: 13, fontWeight: 600 }}>
+        <span style={{ fontSize: 8, color: 'var(--t3)' }}>→</span>
+        <span style={{ fontFamily: 'var(--m)', fontSize: 12, fontWeight: 600 }}>
           {curr != null ? curr : '—'}
         </span>
       </div>
@@ -146,14 +146,14 @@ export function IntervenidosView({ data, pais, onRowClick }: Props) {
                     <div style={{ color: 'var(--t3)' }}>hasta {iv.respect_until_month}</div>
                   </div>
                 </div>
-                <div className="mg" style={{ marginBottom: 5 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4, marginBottom: 5 }}>
                   <div className="mst2">
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                      <span style={{ fontFamily: 'var(--m)', fontSize: 11, color: 'var(--t3)' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
+                      <span style={{ fontFamily: 'var(--m)', fontSize: 10, color: 'var(--t3)' }}>
                         {iv.score_at_intervention ?? '—'}
                       </span>
-                      <span style={{ fontSize: 9, color: 'var(--t3)' }}>→</span>
-                      <span style={{ fontFamily: 'var(--m)', fontSize: 13, fontWeight: 600, color: colorScore(t.score) }}>
+                      <span style={{ fontSize: 8, color: 'var(--t3)' }}>→</span>
+                      <span style={{ fontFamily: 'var(--m)', fontSize: 12, fontWeight: 600, color: colorScore(t.score) }}>
                         {t.score}
                       </span>
                     </div>
@@ -167,25 +167,25 @@ export function IntervenidosView({ data, pais, onRowClick }: Props) {
                   <MetricCell label="Ses. mes" prev={t.sesAnt} curr={t.sesMes} />
                   <MetricCell label="Pacientes" prev={t.pacAnt} curr={t.pacMes} />
                   <div className="mst2">
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                      <span style={{ fontFamily: 'var(--m)', fontSize: 11, color: 'var(--t3)' }}>{sesPacAnt ?? '—'}</span>
-                      <span style={{ fontSize: 9, color: 'var(--t3)' }}>→</span>
-                      <span style={{ fontFamily: 'var(--m)', fontSize: 13, fontWeight: 600 }}>{sesPac ?? '—'}</span>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
+                      <span style={{ fontFamily: 'var(--m)', fontSize: 10, color: 'var(--t3)' }}>{sesPacAnt ?? '—'}</span>
+                      <span style={{ fontSize: 8, color: 'var(--t3)' }}>→</span>
+                      <span style={{ fontFamily: 'var(--m)', fontSize: 12, fontWeight: 600 }}>{sesPac ?? '—'}</span>
                     </div>
                     <div className="ml">Ses/Pac</div>
                   </div>
                 </div>
                 {evolLabel && (
-                  <div style={{ fontSize: 11, color: evolColor, fontWeight: 600 }}>
+                  <div style={{ fontSize: 10, color: evolColor, fontWeight: 600 }}>
                     {evolLabel}
-                    <span style={{ fontWeight: 400, color: 'var(--t3)', marginLeft: 6 }}>
+                    <span style={{ fontWeight: 400, color: 'var(--t3)', marginLeft: 5 }}>
                       · Delta score ±5
                       {iv.marked_in_month === (t.intervencion?.marked_in_month) && ' · mismo mes, sin comparación aún' }
                     </span>
                   </div>
                 )}
                 {evol == null && (
-                  <div style={{ fontSize: 11, color: 'var(--t3)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--t3)' }}>
                     Intervención marcada este mes · sin comparación todavía
                   </div>
                 )}
