@@ -122,7 +122,7 @@ export function IntervenidosView({ data, pais, onRowClick }: Props) {
           No hay terapeutas intervenidos con este filtro.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {filtered.map(t => {
             const iv = t.intervencion!;
             const seg = segmento(t.dias);
@@ -134,19 +134,19 @@ export function IntervenidosView({ data, pais, onRowClick }: Props) {
             const sesPacAnt = t.sesAnt != null && t.pacAnt != null && t.pacAnt > 0
               ? (t.sesAnt / t.pacAnt).toFixed(2) : null;
             return (
-              <div key={t.id} onClick={() => onRowClick?.(t)} style={{ background: 'var(--bg2)', border: '1px solid var(--bd)', borderRadius: 8, padding: '10px 14px', cursor: onRowClick ? 'pointer' : 'default', transition: 'background .1s' }} onMouseEnter={e => { if (onRowClick) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg3)'; }} onMouseLeave={e => { if (onRowClick) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg2)'; }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+              <div key={t.id} onClick={() => onRowClick?.(t)} style={{ background: 'var(--bg2)', border: '1px solid var(--bd)', borderRadius: 7, padding: '7px 10px', cursor: onRowClick ? 'pointer' : 'default', transition: 'background .1s' }} onMouseEnter={e => { if (onRowClick) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg3)'; }} onMouseLeave={e => { if (onRowClick) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg2)'; }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 5 }}>
                   <div>
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>{t.nombre}</span>
-                    <span className={`b ${t.pais === 'AR' ? 'bar' : 'buy'}`} style={{ marginLeft: 6 }}>{t.pais}</span>
-                    <span className="b bn" style={{ marginLeft: 4 }}>{seg}</span>
+                    <span style={{ fontWeight: 600, fontSize: 12 }}>{t.nombre}</span>
+                    <span className={`b ${t.pais === 'AR' ? 'bar' : 'buy'}`} style={{ marginLeft: 5 }}>{t.pais}</span>
+                    <span className="b bn" style={{ marginLeft: 3 }}>{seg}</span>
                   </div>
                   <div style={{ textAlign: 'right', fontSize: 10, color: 'var(--t2)' }}>
                     <div>{iv.type === 'meet' ? '📹 Meet' : '📱 WhatsApp'} · {iv.intervention_date}</div>
                     <div style={{ color: 'var(--t3)' }}>hasta {iv.respect_until_month}</div>
                   </div>
                 </div>
-                <div className="mg" style={{ marginBottom: 8 }}>
+                <div className="mg" style={{ marginBottom: 5 }}>
                   <div className="mst2">
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                       <span style={{ fontFamily: 'var(--m)', fontSize: 11, color: 'var(--t3)' }}>
