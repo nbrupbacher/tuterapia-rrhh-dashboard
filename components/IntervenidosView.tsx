@@ -134,7 +134,7 @@ export function IntervenidosView({ data, pais, onRowClick }: Props) {
             const sesPacAnt = t.sesAnt != null && t.pacAnt != null && t.pacAnt > 0
               ? (t.sesAnt / t.pacAnt).toFixed(2) : null;
             return (
-              <div key={t.id} onClick={() => onRowClick?.(t)} style={{ background: 'var(--bg2)', border: '1px solid var(--bd)', borderRadius: 7, padding: '7px 10px', cursor: onRowClick ? 'pointer' : 'default', transition: 'background .1s' }} onMouseEnter={e => { if (onRowClick) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg3)'; }} onMouseLeave={e => { if (onRowClick) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg2)'; }}>
+              <div key={t.id} onClick={() => onRowClick?.(t)} style={{ background: evol === 'mejoro' ? 'rgba(34,197,94,0.07)' : evol === 'empeoro' ? 'rgba(239,68,68,0.07)' : 'var(--bg2)', border: `1px solid ${evol === 'mejoro' ? 'rgba(34,197,94,0.25)' : evol === 'empeoro' ? 'rgba(239,68,68,0.25)' : 'var(--bd)'}`, borderRadius: 7, padding: '7px 10px', cursor: onRowClick ? 'pointer' : 'default', transition: 'background .1s' }} onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = evol === 'mejoro' ? 'rgba(34,197,94,0.12)' : evol === 'empeoro' ? 'rgba(239,68,68,0.12)' : 'var(--bg3)'; }} onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = evol === 'mejoro' ? 'rgba(34,197,94,0.07)' : evol === 'empeoro' ? 'rgba(239,68,68,0.07)' : 'var(--bg2)'; }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 5 }}>
                   <div>
                     <span style={{ fontWeight: 600, fontSize: 12 }}>{t.nombre}</span>
