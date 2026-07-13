@@ -38,6 +38,7 @@ function MetricCell({ label, prev, curr }: { label: string; prev: number | null;
 
 export function IntervenidosView({ data, pais, onRowClick }: Props) {
   const [filtro, setFiltro] = useState<Filtro>('todos');
+  const [busqueda, setBusqueda] = useState('');
 
   const base = data.filter(t => pais === 'T' || t.pais === pais);
   const mejoraron = base.filter(t => t.evolucion === 'mejoro').length;
@@ -52,7 +53,10 @@ export function IntervenidosView({ data, pais, onRowClick }: Props) {
     if (filtro === 'meet')      return t.intervencion?.type === 'meet';
     if (filtro === 'whatsapp')  return t.intervencion?.type === 'whatsapp';
     return true;
-  });
+  }).filter(t =>
+    busqueda.trim() === '' ||
+    t.nombre.toLowerCase().includes(busqueda.trim().toLowerCase())
+  );
 
   const chips: { key: Filtro; label: string }[] = [
     { key: 'todos',    label: `Todos (${base.length})` },
@@ -78,6 +82,22 @@ export function IntervenidosView({ data, pais, onRowClick }: Props) {
       {/* Banner explicativo */}
       <div style={{ background: 'var(--bg3)', border: '1px solid var(--bd2)', borderRadius: 7, padding: '8px 12px', fontSize: 11, color: 'var(--t2)', marginBottom: 10 }}>
         Durante la ventana de respeto (📹 Meet = 2 meses · 📱 WhatsApp = 1 mes) el terapeuta no aparece en las acciones de riesgo.
+      </div>
+
+      {/* Buscador */}
+      <div style={{ marginBottom: 10 }}>
+        <input
+          type="text"
+          placeholder="Buscar terapeuta…"
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            padding: '6px 10px', fontSize: 12, borderRadius: 7,
+            border: '1px solid var(--bd2)', background: 'var(--bg2)',
+            color: 'var(--t1)', outline: 'none', fontFamily: 'var(--f)',
+          }}
+        />
       </div>
 
       {/* Filtros chip */}
