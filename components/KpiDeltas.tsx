@@ -11,6 +11,7 @@ interface PrevStats {
   scoreAvg: number | null;
   ganTotal: number | null;
   spAvgMes: number | null;
+  pacAvg: number | null;
 }
 
 interface Props {
@@ -30,9 +31,12 @@ export function KpiDeltas({ data, prevStats }: Props) {
   const totPac = data.reduce((s, t) => s + (t.pacMes ?? 0), 0);
   const spMensual = totPac > 0 ? totSes / totPac : 0;
 
+  const pacAvg = data.length > 0 ? totPac / data.length : 0;
+
   const scoreDelta = formatDeltaAbs(scoreAvg, prevStats.scoreAvg, (n) => `${n > 0 ? '+' : ''}${n.toFixed(0)} pts`);
   const ganDelta = formatDeltaMoney(ganTotal, prevStats.ganTotal);
   const spDelta = formatDeltaAbs(spMensual, prevStats.spAvgMes, (n) => n.toFixed(2));
+  const pacDelta = formatDeltaAbs(pacAvg, prevStats.pacAvg, (n) => `${n > 0 ? '+' : ''}${n.toFixed(1)}`);
 
   return (
     <>
@@ -55,6 +59,12 @@ export function KpiDeltas({ data, prevStats }: Props) {
           value={spMensual.toFixed(2)}
           valueColor={colorSesPaciente(spMensual)}
           delta={spDelta}
+        />
+        <DeltaCard
+          label="Prom. pac. activos/psic."
+          value={pacAvg.toFixed(1)}
+          valueColor="var(--ac)"
+          delta={pacDelta}
         />
       </div>
       <div className="div" />
