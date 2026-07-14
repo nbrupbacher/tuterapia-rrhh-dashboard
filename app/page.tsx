@@ -24,10 +24,11 @@ interface PrevStats {
   scoreAvg: number | null;
   ganTotal: number | null;
   spAvgMes: number | null;
+  pacAvg: number | null;
 }
 
 type PrevStatsByPais = Record<PaisFilter, PrevStats>;
-const EMPTY_PREV_STATS: PrevStats = { scoreAvg: null, ganTotal: null, spAvgMes: null };
+const EMPTY_PREV_STATS: PrevStats = { scoreAvg: null, ganTotal: null, spAvgMes: null, pacAvg: null };
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -109,7 +110,8 @@ export default function DashboardPage() {
           const totSes = pm.reduce((s, m) => s + (Number(m.sesiones_totales) || 0), 0);
           const totPac = pm.reduce((s, m) => s + (Number(m.pacientes_unicos) || 0), 0);
           const spAvgMes = totPac > 0 ? totSes / totPac : null;
-          return { scoreAvg, ganTotal, spAvgMes };
+          const pacAvg = ps.length > 0 ? totPac / ps.length : null;
+          return { scoreAvg, ganTotal, spAvgMes, pacAvg };
         }
 
         setPrevStatsByPais({
