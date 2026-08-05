@@ -73,19 +73,9 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
     return situaciones;
   }
 
-  // === 2. SIN ACTIVIDAD SOSTENIDA === (>30 días sin sesión, consolidado)
-  if (esSinActividadSostenida(d)) {
-    situaciones.push('sin_actividad_sostenida');
-    return situaciones;
-  }
-
-  // === 3. EN ABANDONO === (<6m + 0 sesiones + tendencia sin act/bajando)
-  if (esEnAbandono(d)) {
-    situaciones.push('en_abandono');
-    return situaciones;
-  }
-
-  // === 4. VENTANA 45-55 días ===
+  // === 2. VENTANA 45-55 días ===
+  // Va antes de sin_actividad_sostenida y en_abandono porque durante esta ventana
+  // específica el tratamiento correcto es meet, no evaluar_continuidad.
   if (d.diasPlataforma >= UMBRALES.VENTANA_INICIO_DIAS &&
       d.diasPlataforma <= UMBRALES.VENTANA_FIN_DIAS) {
     if (d.sesMes === 0) {
@@ -95,6 +85,19 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
     } else if (esVentanaVieneBien(d)) {
       situaciones.push('ventana_45_55_viene_bien');
     }
+    return situaciones;
+  }
+
+  // === 3. SIN ACTIVIDAD SOSTENIDA === (>30 días sin sesión, consolidado)
+  if (esSinActividadSostenida(d)) {
+    situaciones.push('sin_actividad_sostenida');
+    return situaciones;
+  }
+
+  // === 4. EN ABANDONO === (<6m + 0 sesiones + tendencia sin act/bajando)
+  if (esEnAbandono(d)) {
+    situaciones.push('en_abandono');
+    return situaciones;
   }
 
   // === 5. ALERTA DE ARRANQUE === (<6m + pocas ses + arrancando/bajando)
@@ -107,7 +110,7 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
     situaciones.push('pierde_pacientes_netos');
   }
 
-  // === 7. CONVERSIÓN (Mejora 6: dividido en dos) ===
+  // === 7. CONVERSIÓN ===
   // sin_conversion (dp <= 0) → Meet · conversion_baja (dp > 0 pero < benchmark) → WhatsApp
   // sin_conversion solo se asigna si tiene registros suficientes para poder hacer meet.
   const conv = clasificarConversion(d);
