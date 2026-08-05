@@ -39,6 +39,7 @@ export function KpiSections({ data, pais, onKpiClick }: KpiSectionsProps) {
   const nSubiendo = filtered.filter((r) => r.tendencia === 'subiendo').length;
   const nBajando = filtered.filter((r) => r.tendencia === 'bajando').length;
   const totalGan = filtered.reduce((s, r) => s + (r.ganMes || 0), 0);
+  const totalPac = filtered.reduce((s, r) => s + (r.pacMes || 0), 0);
   const scores = filtered.map((r) => r.score || 0).sort((a, b) => a - b);
   const med = scores.length > 0 ? scores[Math.floor(scores.length / 2)] || 0 : 0;
 
@@ -85,6 +86,10 @@ export function KpiSections({ data, pais, onKpiClick }: KpiSectionsProps) {
         <div className="k">
           <div className="kv" style={{ color: 'var(--v)', fontSize: 15 }}>{usd(totalGan)}</div>
           <div className="kl">Ganancia mes</div>
+        </div>
+        <div className="k">
+          <div className="kv" style={{ color: 'var(--ac)' }}>{totalPac}</div>
+          <div className="kl">Pacientes totales</div>
         </div>
       </div>
     </>
