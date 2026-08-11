@@ -12,6 +12,7 @@ import { DashboardTable } from '@/components/DashboardTable';
 import { TherapistModal } from '@/components/TherapistModal';
 import { ProgressView } from '@/components/ProgressView';
 import { IntervenidosView } from '@/components/IntervenidosView';
+import { NovedadesTicker } from '@/components/NovedadesTicker';
 import { segmento } from '@/lib/helpers';
 import { fetchActiveInterventions } from '@/lib/interventions';
 import type { AccionId, SituacionId } from '@/lib/constants-matrix';
@@ -316,6 +317,7 @@ export default function DashboardPage() {
         onClose={() => setSelectedTherapist(null)}
         onInterventionChange={() => setReloadKey(k => k + 1)}
       />
+      <NovedadesTicker />
     </>
   );
 }
