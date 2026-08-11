@@ -104,49 +104,31 @@ function formatNovedad(r: NovedadRecord): string {
   }
 }
 
-// Mezcla aleatoria ponderada: cada tipo tiene probabilidad proporcional
-// a cuántos items le quedan, pero nunca elige el mismo tipo dos veces seguidas.
-// Resultado: verdadera aleatoriedad sin rachas largas del mismo tipo.
+// Fisher-Yates sobre todos los items combinados, luego un pase de separación
+// para que nunca aparezcan dos del mismo tipo consecutivos.
+// Esto da verdadera aleatoriedad: subio_pacientes (29 items) aparece distribuido
+// por todo el ticker en vez de en bloque.
 function shuffleVaried(records: NovedadRecord[]): NovedadRecord[] {
-  // Shuffle interno de cada grupo para que el orden individual también sea aleatorio
-  const groups = new Map<string, NovedadRecord[]>();
-  for (const r of records) {
-    const g = groups.get(r.tipo) ?? [];
-    g.push(r);
-    groups.set(r.tipo, g);
+  // Paso 1: shuffle completo
+  const arr = [...records];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
   }
-  for (const g of groups.values()) {
-    for (let i = g.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [g[i], g[j]] = [g[j], g[i]];
+
+  // Paso 2: separar consecutivos del mismo tipo
+  // Cuando dos adyacentes son del mismo tipo, busca el primer item diferente
+  // más adelante y lo trae a esa posición.
+  for (let i = 0; i < arr.length - 1; i++) {
+    if (arr[i].tipo === arr[i + 1].tipo) {
+      const swapIdx = arr.findIndex((r, j) => j > i + 1 && r.tipo !== arr[i].tipo);
+      if (swapIdx !== -1) {
+        [arr[i + 1], arr[swapIdx]] = [arr[swapIdx], arr[i + 1]];
+      }
     }
   }
 
-  const result: NovedadRecord[] = [];
-  const keys = Array.from(groups.keys());
-
-  while (true) {
-    const active = keys.filter(k => groups.get(k)!.length > 0);
-    if (active.length === 0) break;
-
-    const lastTipo = result.length > 0 ? result[result.length - 1].tipo : null;
-    // Prefer types different from last pick; fallback to any if only one type left
-    const pool = active.filter(k => k !== lastTipo);
-    const candidates = pool.length > 0 ? pool : active;
-
-    // Weighted pick: groups with more items appear more often
-    const total = candidates.reduce((s, k) => s + groups.get(k)!.length, 0);
-    let rand = Math.random() * total;
-    let chosen = candidates[candidates.length - 1];
-    for (const k of candidates) {
-      rand -= groups.get(k)!.length;
-      if (rand <= 0) { chosen = k; break; }
-    }
-
-    result.push(groups.get(chosen)!.shift()!);
-  }
-
-  return result;
+  return arr;
 }
 
 export function NovedadesTicker() {
