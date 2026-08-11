@@ -104,32 +104,48 @@ function formatNovedad(r: NovedadRecord): string {
   }
 }
 
-// Intercala filas de distintos tipos para que el ticker sea variado.
-// Round-robin por tipo, respetando el orden original dentro de cada tipo.
-function interleave(records: NovedadRecord[]): NovedadRecord[] {
+// Mezcla aleatoria ponderada: cada tipo tiene probabilidad proporcional
+// a cuántos items le quedan, pero nunca elige el mismo tipo dos veces seguidas.
+// Resultado: verdadera aleatoriedad sin rachas largas del mismo tipo.
+function shuffleVaried(records: NovedadRecord[]): NovedadRecord[] {
+  // Shuffle interno de cada grupo para que el orden individual también sea aleatorio
   const groups = new Map<string, NovedadRecord[]>();
-  // Orden fijo de tipos para que la secuencia sea coherente
-  const typeOrder: NovedadTipo[] = [
-    'nuevos', 'total_activos',
-    'subio_pacientes', 'bajo_pacientes',
-    'top_pacientes', 'alta_conversion',
-    'subio_rango', 'bajo_rango',
-    'nuevo_convierte', 'record_delta',
-    'top_registros',
-  ];
-  for (const tipo of typeOrder) {
-    const rows = records.filter(r => r.tipo === tipo);
-    if (rows.length) groups.set(tipo, rows);
+  for (const r of records) {
+    const g = groups.get(r.tipo) ?? [];
+    g.push(r);
+    groups.set(r.tipo, g);
   }
-  const keys = Array.from(groups.keys());
-  const maxLen = Math.max(...keys.map(k => groups.get(k)!.length));
-  const result: NovedadRecord[] = [];
-  for (let i = 0; i < maxLen; i++) {
-    for (const key of keys) {
-      const g = groups.get(key)!;
-      if (i < g.length) result.push(g[i]);
+  for (const g of groups.values()) {
+    for (let i = g.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [g[i], g[j]] = [g[j], g[i]];
     }
   }
+
+  const result: NovedadRecord[] = [];
+  const keys = Array.from(groups.keys());
+
+  while (true) {
+    const active = keys.filter(k => groups.get(k)!.length > 0);
+    if (active.length === 0) break;
+
+    const lastTipo = result.length > 0 ? result[result.length - 1].tipo : null;
+    // Prefer types different from last pick; fallback to any if only one type left
+    const pool = active.filter(k => k !== lastTipo);
+    const candidates = pool.length > 0 ? pool : active;
+
+    // Weighted pick: groups with more items appear more often
+    const total = candidates.reduce((s, k) => s + groups.get(k)!.length, 0);
+    let rand = Math.random() * total;
+    let chosen = candidates[candidates.length - 1];
+    for (const k of candidates) {
+      rand -= groups.get(k)!.length;
+      if (rand <= 0) { chosen = k; break; }
+    }
+
+    result.push(groups.get(chosen)!.shift()!);
+  }
+
   return result;
 }
 
@@ -152,7 +168,7 @@ export function NovedadesTicker() {
       .rpc('get_novedades_ultimo_mes')
       .then(({ data, error }) => {
         if (error || !data) return;
-        const mixed = interleave(data as NovedadRecord[]);
+        const mixed = shuffleVaried(data as NovedadRecord[]);
         const texts = mixed.map(formatNovedad).filter(Boolean);
         setItems(texts);
       });
