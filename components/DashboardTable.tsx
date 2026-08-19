@@ -204,7 +204,19 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
 
               return (
                 <tr key={r.id} className={rowClass(r)} onClick={() => onRowClick(r)}>
-                  <td className="c-n tn">{r.nombre}</td>
+                  <td className="c-n tn" style={{ position: 'relative' }}>
+                    {r.nombre}
+                    {(r.intervencion || r.hasNotas) && (
+                      <svg
+                        width="11" height="11" viewBox="0 0 20 20" fill="none"
+                        style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', color: 'var(--t2)', opacity: 0.55, pointerEvents: 'none' }}
+                        title={[r.intervencion ? 'Intervención activa' : '', r.hasNotas ? 'Tiene notas' : ''].filter(Boolean).join(' · ')}
+                      >
+                        <path d="M1 10s3.5-7 9-7 9 7 9 7-3.5 7-9 7-9-7-9-7z" stroke="currentColor" strokeWidth="1.8" fill="none"/>
+                        <circle cx="10" cy="10" r="3" stroke="currentColor" strokeWidth="1.8" fill="none"/>
+                      </svg>
+                    )}
+                  </td>
                   <td className="c-p"><span className={`b ${r.pais === 'AR' ? 'bar' : 'buy'}`}>{r.pais}</span></td>
                   <td className="c-es" style={{ textAlign: 'center' }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', display: 'inline-block', background: colorZona(r.zona) }} />
