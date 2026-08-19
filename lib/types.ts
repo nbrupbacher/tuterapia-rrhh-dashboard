@@ -127,6 +127,9 @@ export interface TherapistView {
   // Intervención activa (si existe)
   intervencion?: Intervention | null;
   evolucion?: 'mejoro' | 'igual' | 'empeoro' | null;
+
+  // Tiene al menos una nota registrada en therapist_actions
+  hasNotas?: boolean;
 }
 
 

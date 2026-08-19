@@ -134,6 +134,12 @@ export default function DashboardPage() {
 
       // Fetch active interventions
       const activeInterventions = await fetchActiveInterventions(latestMonth);
+      // Fetch therapist IDs that have at least one nota
+      const { data: notasRows } = await supabase
+        .from('therapist_actions')
+        .select('therapist_id')
+        .eq('tipo', 'nota');
+      const notasSet = new Set<string>((notasRows || []).map((n: any) => n.therapist_id as string));
       const interventionMap = new Map<string, Intervention>(
         activeInterventions.map(iv => [iv.therapist_id, iv])
       );
@@ -195,6 +201,7 @@ export default function DashboardPage() {
           regAnt: mp?.registros_mes ?? null,
           intervencion: iv,
           evolucion,
+          hasNotas: notasSet.has(t.id),
         };
       });
       setTherapists(merged);
