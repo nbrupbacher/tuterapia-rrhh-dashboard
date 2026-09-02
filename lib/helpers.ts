@@ -1,6 +1,7 @@
 import type { Tendencia, TherapistView } from './types';
 import type { SituacionId, AccionId, ColorSituacion } from './constants-matrix';
 import { SITUACIONES, ACCIONES, COLOR_CLS, ordenarSituacionesPorGravedad } from './constants-matrix';
+import { MIN_PACIENTES_1RA_SESION } from './csvParser';
 
 // ============================================================
 // Colores
@@ -28,6 +29,19 @@ export function colorZona(zona: 'Verde' | 'Amarillo' | 'Rojo'): string {
   if (zona === 'Verde') return 'var(--v)';
   if (zona === 'Amarillo') return 'var(--am)';
   return 'var(--r)';
+}
+
+// % de caída en 1ra sesión: cuanto más bajo, mejor (menos pacientes se van
+// después de la primera sesión). Devuelve null cuando no hay muestra
+// suficiente, para poder distinguir "sin datos" de un 0% real (excelente).
+export function pctCaida1ra(t: TherapistView): { value: number | null; color: string; n: number | null } {
+  const n = t.pacientes1raSesion;
+  const v = t.pctCaida1ra;
+  if (v == null || n == null || n < MIN_PACIENTES_1RA_SESION) {
+    return { value: null, color: 'var(--t3)', n };
+  }
+  const color = v >= 50 ? 'var(--r)' : v >= 30 ? 'var(--am)' : 'var(--v)';
+  return { value: v, color, n };
 }
 
 export function colorDias(d: number | null): string {

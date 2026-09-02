@@ -5,8 +5,9 @@ import type { TherapistView } from '@/lib/types';
 import {
   colorScore, colorSesPaciente, segmento,
   cuadranteBadge, situacionBadge, accionBadge,
-  usd, ganHist,
+  usd, ganHist, pctCaida1ra,
 } from '@/lib/helpers';
+import { MIN_PACIENTES_1RA_SESION } from '@/lib/csvParser';
 import { ACCION_INMEDIATA, ACCION_TEMPORAL, ordenarSituacionesPorGravedad } from '@/lib/constants-matrix';
 import { fetchNotes, addNote, deleteNote, type Note } from '@/lib/notes';
 import { markIntervention, unmarkIntervention, fetchTherapistInterventions } from '@/lib/interventions';
@@ -116,6 +117,7 @@ export function TherapistModal({ therapist, userEmail, currentMonth, onClose, on
   const deltaPac = r.pacMes != null && r.pacAnt != null ? r.pacMes - r.pacAnt : null;
   const deltaReg = r.regMes != null && r.regAnt != null ? r.regMes - r.regAnt : null;
   const gh = ganHist(r);
+  const p1 = pctCaida1ra(r);
   const cBadge = cuadranteBadge(r.cuadrante);
   const whatsapp = waLink(r.telefono, r.pais);
 
@@ -306,6 +308,25 @@ export function TherapistModal({ therapist, userEmail, currentMonth, onClose, on
                 <div className="mv" style={{ color: colorSesPaciente(sp) }}>{sp ? sp.toFixed(2) : '—'}</div>
                 <div className="ml">Prom.ses 3m</div>
                 <div className="msb2">umbral ≥2.0</div>
+              </div>
+              <div
+                className="mst2"
+                title={
+                  p1.value != null
+                    ? `${r.pacientesSin2da ?? 0} de ${p1.n} pacientes no agendaron una 2da sesión con este terapeuta`
+                    : p1.n != null
+                      ? `Muestra insuficiente (${p1.n} paciente${p1.n === 1 ? '' : 's'}, mínimo ${MIN_PACIENTES_1RA_SESION})`
+                      : 'Sin datos cargados'
+                }
+              >
+                <div className="mv" style={{ color: p1.color }}>
+                  {p1.value != null ? `${p1.value.toFixed(1)}%` : '—'}
+                </div>
+                <div className="ml">Caída 1ra ses.</div>
+                <div className="msb2">
+                  {p1.n != null ? `n=${p1.n}` : 'sin datos'}
+                  {r.primeraSesionMonth ? ` · al ${r.primeraSesionMonth}` : ''}
+                </div>
               </div>
               <div className="mst2">
                 <div className="mv" style={{ color: deltaPac != null && deltaPac < 0 ? 'var(--r)' : (r.pacMes || 0) >= 3 ? 'var(--v)' : 'var(--am)' }}>

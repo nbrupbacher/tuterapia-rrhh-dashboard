@@ -84,6 +84,7 @@ td { padding:6px 8px; font-size:12px; white-space:nowrap; vertical-align:middle;
 .c-es { width:36px; }
 .c-se { width:56px; } .c-pp { width:60px; } .c-pa { width:80px; } .c-rm { width:60px; }
 .c-cv { width:60px; } .c-rt { width:70px; } .c-sp { width:72px; }
+.c-p1 { width:74px; }
 .c-ul { width:60px; } .c-hs { width:96px; } .c-gh { width:96px; } .c-gm { width:96px; }
 
 .tn { font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
