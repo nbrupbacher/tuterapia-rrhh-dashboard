@@ -147,7 +147,9 @@ export async function POST(request: Request) {
   });
 
   const targetDate = new Date(yy, mm - 1, 1);
-  const lastDayOfMonthMs = new Date(yy, mm, 0).getTime();
+  // En UTC para alinear con las fechas del CSV, que se parsean como
+  // YYYY-MM-DD (medianoche UTC). Si no, el offset del server corre un día.
+  const lastDayOfMonthMs = Date.UTC(yy, mm, 0);
 
   const stateRows = rows.map(r => {
     // Días en plataforma al inicio del mes target
@@ -156,10 +158,15 @@ export async function POST(request: Request) {
       ? Math.floor((targetDate.getTime() - inicioDate.getTime()) / (1000 * 60 * 60 * 24))
       : 0;
 
-    // Días sin sesión al fin del mes target
+    // Días sin sesión al fin del mes target.
+    // El CSV se exporta unos días después del cierre, así que puede traer
+    // sesiones posteriores al último día del mes (ej: mes 08 con última
+    // sesión el 01/09). Eso daba negativos ("-1d"): si la última sesión es
+    // igual o posterior al corte, el terapeuta está activo → 0 días.
     let diasSinSesion: number | null = null;
     if (r.ultima_sesion) {
-      diasSinSesion = Math.floor((lastDayOfMonthMs - new Date(r.ultima_sesion).getTime()) / 86400000);
+      const diff = Math.floor((lastDayOfMonthMs - Date.parse(r.ultima_sesion)) / 86400000);
+      diasSinSesion = Math.max(0, diff);
     }
 
     const cur: MonthData = {

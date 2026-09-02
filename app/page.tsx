@@ -191,7 +191,9 @@ export default function DashboardPage() {
           // Métricas
           sesPaciente3m: Number(st?.ses_paciente_3m || 0),
           ganMes: Number(st?.gan_mes || 0),
-          diasSinSesion: st?.dias_sin_sesion ?? null,
+          // Nunca negativo: una última sesión posterior al cierre del mes
+          // significa que está activo (0 días), no "-1 día".
+          diasSinSesion: st?.dias_sin_sesion != null ? Math.max(0, st.dias_sin_sesion) : null,
           videollamada: st?.videollamada || false,
           tasaCancelMes: st?.tasa_cancel != null ? Number(st.tasa_cancel) : null,
           reg3m: st?.reg_3m != null ? Number(st.reg_3m) : null,
