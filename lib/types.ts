@@ -39,6 +39,11 @@ export interface TherapistRow {
   registros_totales_hist: number | null;
   sesiones_totales_hist: number | null;
   pacientes_unicos_hist: number | null;
+  // % caída en 1ra sesión — acumulado histórico, se reemplaza en cada carga
+  pct_caida_1ra_sesion: number | null;
+  pacientes_1ra_sesion: number | null;
+  pacientes_sin_2da: number | null;
+  primera_sesion_month: string | null;
 }
 
 export interface TherapistStateRow {
@@ -91,6 +96,13 @@ export interface TherapistView {
   regTotalHist: number;
   sesionesHist: number;
   pacientesHist: number;
+
+  // % caída en 1ra sesión (acumulado histórico vigente).
+  // null = nunca se cargó dato para este terapeuta.
+  pctCaida1ra: number | null;
+  pacientes1raSesion: number | null;
+  pacientesSin2da: number | null;
+  primeraSesionMonth: string | null;
 
   // Capa Predicción (sin cambios)
   score: number;

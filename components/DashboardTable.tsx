@@ -6,9 +6,10 @@ import {
   colorScore, colorSesPaciente, colorHs, colorZona, colorDias,
   segmento, tendenciaBadge, cuadranteBadge,
   situacionBadge, accionBadge, topSituaciones,
-  deltaBadge, conversion, rowClass, usd, ganHist,
+  deltaBadge, conversion, rowClass, usd, ganHist, pctCaida1ra,
 } from '@/lib/helpers';
 import { ACCION_TEMPORAL } from '@/lib/constants-matrix';
+import { MIN_PACIENTES_1RA_SESION } from '@/lib/csvParser';
 
 interface DashboardTableProps {
   data: TherapistView[];
@@ -39,6 +40,8 @@ function calcConvNum(r: TherapistView): number | null {
 function getSortValue(r: TherapistView, key: SortKey): number | string | null {
   if (key === '_ganHist') return ganHist(r);
   if (key === '_conv') return calcConvNum(r);
+  // Ordena por lo que se muestra: sin muestra suficiente va al final, como los nulls
+  if (key === 'pctCaida1ra') return pctCaida1ra(r).value;
   const v = r[key as keyof TherapistView];
   if (Array.isArray(v) || (typeof v === 'object' && v !== null)) return null;
   return v as any;
@@ -128,6 +131,7 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                   <SortableTh k="_conv" cls="c-cv">Conv.</SortableTh>
                   <SortableTh k="regTotalHist" cls="c-rt">Reg.total</SortableTh>
                   <SortableTh k="sesPaciente3m" cls="c-sp">Prom.ses 3m</SortableTh>
+                  <SortableTh k="pctCaida1ra" cls="c-p1">% 1ra ses.</SortableTh>
                   <SortableTh k="ultimaSesion" cls="c-ul">Últ.ses.</SortableTh>
                   <SortableTh k="hs" cls="c-hs">Hs.</SortableTh>
                   <SortableTh k="_ganHist" cls="c-gh">Gan.hist.</SortableTh>
@@ -199,6 +203,7 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
               const dtSes = deltaBadge(r.sesMes, r.sesAnt);
               const conv = conversion(r.pacMes, r.pacAnt, r.regMes);
               const gh = ganHist(r);
+              const p1 = pctCaida1ra(r);
               const hsVal = r.hs || 0;
               const hsPct = Math.min(100, Math.round(hsVal / 40 * 100));
 
@@ -247,6 +252,19 @@ export function DashboardTable({ data, view, onRowClick }: DashboardTableProps) 
                   </td>
                   <td className="c-rt tm" style={{ color: 'var(--t2)' }}>{r.regTotalHist || '—'}</td>
                   <td className="c-sp tm" style={{ color: colorSesPaciente(sp) }}>{sp ? sp.toFixed(1) : '—'}</td>
+                  <td
+                    className="c-p1 tm"
+                    style={{ color: p1.color }}
+                    title={
+                      p1.value != null
+                        ? `${r.pacientesSin2da ?? 0} de ${p1.n} pacientes no agendaron una 2da sesión`
+                        : p1.n != null
+                          ? `Muestra insuficiente (${p1.n} paciente${p1.n === 1 ? '' : 's'}, mínimo ${MIN_PACIENTES_1RA_SESION})`
+                          : 'Sin datos cargados'
+                    }
+                  >
+                    {p1.value != null ? `${p1.value.toFixed(1)}%` : '—'}
+                  </td>
                   <td className="c-ul tm" style={{ color: colorDias(r.diasSinSesion) }}>
                     {r.diasSinSesion != null ? `${r.diasSinSesion}d` : '—'}
                   </td>
