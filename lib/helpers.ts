@@ -34,14 +34,17 @@ export function colorZona(zona: 'Verde' | 'Amarillo' | 'Rojo'): string {
 // % de caída en 1ra sesión: cuanto más bajo, mejor (menos pacientes se van
 // después de la primera sesión). Devuelve null cuando no hay muestra
 // suficiente, para poder distinguir "sin datos" de un 0% real (excelente).
+export function colorPctCaida1ra(v: number): string {
+  return v >= 50 ? 'var(--r)' : v >= 30 ? 'var(--am)' : 'var(--v)';
+}
+
 export function pctCaida1ra(t: TherapistView): { value: number | null; color: string; n: number | null } {
   const n = t.pacientes1raSesion;
   const v = t.pctCaida1ra;
   if (v == null || n == null || n < MIN_PACIENTES_1RA_SESION) {
     return { value: null, color: 'var(--t3)', n };
   }
-  const color = v >= 50 ? 'var(--r)' : v >= 30 ? 'var(--am)' : 'var(--v)';
-  return { value: v, color, n };
+  return { value: v, color: colorPctCaida1ra(v), n };
 }
 
 export function colorDias(d: number | null): string {

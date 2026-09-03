@@ -3,7 +3,7 @@
 import type { TherapistView } from '@/lib/types';
 import {
   formatDeltaAbs, formatDeltaMoney, usd,
-  colorScore, colorSesPaciente,
+  colorScore, colorSesPaciente, pctCaida1ra, colorPctCaida1ra,
   type Delta,
 } from '@/lib/helpers';
 
@@ -32,6 +32,12 @@ export function KpiDeltas({ data, prevStats }: Props) {
   const spMensual = totPac > 0 ? totSes / totPac : 0;
 
   const pacAvg = data.length > 0 ? totPac / data.length : 0;
+
+  // Promedio de % de caída en 1ra sesión: solo sobre terapeutas con muestra
+  // suficiente (mismo criterio que la Matrix), para no diluir el promedio
+  // con "sin datos" tratado como 0%.
+  const pctValues = data.map((t) => pctCaida1ra(t).value).filter((v): v is number => v != null);
+  const pctAvg = pctValues.length > 0 ? pctValues.reduce((s, v) => s + v, 0) / pctValues.length : null;
 
   const scoreDelta = formatDeltaAbs(scoreAvg, prevStats.scoreAvg, (n) => `${n > 0 ? '+' : ''}${n.toFixed(0)} pts`);
   const ganDelta = formatDeltaMoney(ganTotal, prevStats.ganTotal);
@@ -65,6 +71,12 @@ export function KpiDeltas({ data, prevStats }: Props) {
           value={pacAvg.toFixed(1)}
           valueColor="var(--ac)"
           delta={pacDelta}
+        />
+        <DeltaCard
+          label="Prom. caída 1ra ses."
+          value={pctAvg != null ? `${pctAvg.toFixed(1)}%` : '—'}
+          valueColor={pctAvg != null ? colorPctCaida1ra(pctAvg) : 'var(--t3)'}
+          delta={null}
         />
       </div>
       <div className="div" />
