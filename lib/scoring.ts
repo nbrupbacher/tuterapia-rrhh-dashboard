@@ -9,10 +9,29 @@ import type { SituacionId, AccionId } from './constants-matrix';
 import { detectarSituaciones } from './situations';
 import { calcularAcciones, type AccionPendiente } from './actions';
 
-const TARIFAS: Record<Pais, { s: number; r: number }> = {
-  AR: { s: 5.5, r: 1.5 },
-  UY: { s: 10.0, r: 2.0 },
+// Valor por sesión con vigencia mensual. Espeja la tabla growth_valor_sesion
+// de Supabase, que es la fuente de verdad. Para un mes se usa la entrada con
+// el mayor `desde` que sea <= a ese mes, así los meses viejos conservan su
+// valor de entonces y no se recalculan hacia atrás.
+export interface Tarifa { desde: string; s: number; r: number; }
+
+export const TARIFAS_VIGENCIA: Record<Pais, Tarifa[]> = {
+  AR: [
+    { desde: '2026-01', s: 5.5, r: 1.5 },
+    { desde: '2026-08', s: 6.0, r: 1.5 },
+  ],
+  UY: [
+    { desde: '2026-01', s: 10.0, r: 2.0 },
+  ],
 };
+
+export function tarifaVigente(pais: Pais, month: string): Tarifa {
+  const vigentes = TARIFAS_VIGENCIA[pais].filter(t => t.desde <= month);
+  // Si el mes es anterior a toda vigencia conocida, se usa la más vieja.
+  return vigentes.length
+    ? vigentes[vigentes.length - 1]
+    : TARIFAS_VIGENCIA[pais][0];
+}
 const MED: Record<Pais, number> = { AR: 16, UY: 124 };
 const TSA: Record<Pais, number> = { AR: 0.094, UY: 0.161 };
 
@@ -52,11 +71,14 @@ export function calcScore(
   // NUEVO: contador del mes anterior por terapeuta (para lógica temporal)
   mesesEnSituacionPrevio: Record<string, number> = {},
   diasSinSesion: number | null = null,
-  // Mejora 1 (capa 2): mes del período procesado (1-12) para filtro estacional.
-  // OJO reprocesos: el llamador DEBE pasar el mes del período, no el del sistema.
-  mesActual: number = new Date().getMonth() + 1,
+  // Mes del período procesado, 'YYYY-MM'. Define dos cosas: el valor por
+  // sesión vigente y el mes del filtro estacional de situaciones. Al
+  // reprocesar un mes viejo hay que pasar el mes del período, no el del
+  // sistema, o el resultado sale corrido.
+  month: string = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
 ): ScoreResult {
-  const cv = TARIFAS[pais];
+  const cv = tarifaVigente(pais, month);
+  const mesActual = Number(month.split('-')[1]);
   const { sm, pm, rm } = cur;
   const hs = cur.hs ?? 0;
 

@@ -69,3 +69,59 @@ lib/
 4. Modal de detalle del terapeuta
 5. Notas y videollamadas (capa humana)
 6. Pestaña Progreso con gráficos
+
+## Pestaña Growth
+
+Genera insights mensuales accionables para el equipo de RRHH, escritos desde la
+oportunidad y con botones Sirve / Descarto para aprender qué tipo de insight es
+útil.
+
+### Cómo funciona
+
+1. **Los números los calcula la base.** Una función SQL por generador
+   (`growth_gen_<slug>(p_month, p_pais)`), que devuelve un jsonb con los datos y
+   la lista de terapeutas afectados.
+2. **La redacción vive en TypeScript** (`lib/growth-templates.ts`), con una
+   plantilla fija por generador. Sin LLM.
+3. **El recálculo** (`lib/growth-recalc.ts`) corre los generadores, rankea y hace
+   upsert en `growth_insights`. Se dispara al final de cada carga de CSV y con el
+   botón "Recalcular mes".
+
+Si un generador no llega a su mínimo de casos, no genera insight: mejor nada que
+ruido.
+
+### Ranking
+
+`score = impacto_usd normalizado × penalización × peso de feedback`
+
+- **Penalización 0.5** si el mismo generador y país salió el mes anterior y su
+  número principal se movió menos de 15%.
+- **Peso de feedback** según el histórico del generador, con piso 0.3 para que
+  nunca desaparezca del todo.
+- Los insights sin impacto en USD usan un valor base configurable.
+
+### Tablas
+
+- `growth_valor_sesion` — valor por sesión con vigencia mensual (`pais`,
+  `vigente_desde`, `valor`, `costo_registro`). Para un mes se usa la fila más
+  reciente con `vigente_desde <= month`. Es la fuente de verdad de
+  `TARIFAS_VIGENCIA` en `lib/scoring.ts`.
+- `growth_config` — key/value con tasas de activación, LTV, umbrales y el flag
+  `enabled` de cada generador.
+- `growth_insights` — un insight por `(month, pais, generator)`. Recalcular hace
+  upsert sin tocar las columnas de feedback, así lo ya marcado se conserva.
+
+### Cosas a tener en cuenta con los datos
+
+- Las comparaciones entre meses se hacen **en sesiones, no en USD**: el valor por
+  sesión cambia con el tiempo y en USD aparecerían saltos que no son reales. Los
+  USD solo se usan para estimar el impacto del mes actual.
+- `hs_disponibles` son horas **por semana**. La capacidad mensual es
+  `hs × 4.3`. Los terapeutas sin horas cargadas quedan fuera de los cálculos de
+  capacidad y se informan en el propio insight.
+- `pct_caida_1ra_sesion` es un acumulado histórico de un único snapshot, no un
+  dato del mes. Los textos nunca dicen "este mes" sobre ese número.
+- Los terapeutas con `inicio` en el futuro se excluyen de los análisis por
+  antigüedad y se listan en el payload de `crecimiento_pais` para corregirlos.
+- Que un terapeuta salga del CSV equivale a una baja: la descomposición del
+  crecimiento usa la presencia en `monthly_metrics`.

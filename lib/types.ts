@@ -16,7 +16,7 @@ export type Intervention = {
 import type { AccionPendiente } from './actions';
 
 export type Pais = 'AR' | 'UY';
-export type View = 'pred' | 'anal' | 'prog' | 'interv';
+export type View = 'pred' | 'anal' | 'prog' | 'growth' | 'interv';
 export type PaisFilter = 'T' | 'AR' | 'UY';
 // MODIFICADO PR2: tabs nuevos. IRR/OC/SEG45 removidos, CRIT/V45/DEST agregados.
 export type TabKey = 'T' | 'CRIT' | 'V45' | 'DEST' | 'NUE';

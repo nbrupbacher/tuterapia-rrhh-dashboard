@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { calcScore, type MonthData } from '@/lib/scoring';
 import type { CsvRow } from '@/lib/csvParser';
 import type { Pais } from '@/lib/types';
+import { recalcGrowthMonth } from '@/lib/growth-recalc';
 
 // IMPORTANTE: Esta API usa el service_role key de Supabase
 // que tiene permisos de admin. Solo accesible desde el servidor.
@@ -188,6 +189,7 @@ export async function POST(request: Request) {
       prev2Map.get(r.id) || null,
       mesesPrevios,
       diasSinSesion,
+      month,
     );
 
     return {
@@ -215,10 +217,23 @@ export async function POST(request: Request) {
   const { error: stErr } = await sb.from('therapist_state').upsert(stateRows, { onConflict: 'therapist_id,month' });
   if (stErr) return NextResponse.json({ error: `Error therapist_state: ${stErr.message}` }, { status: 500 });
 
+  // 7. Regenerar los insights de Growth del mes recién cargado.
+  // Si falla, la carga igual fue exitosa: se avisa y se puede reintentar con
+  // el botón "Recalcular mes" de la pestaña.
+  let growth: { insights: number } | null = null;
+  let growthError: string | undefined;
+  try {
+    growth = await recalcGrowthMonth(sb, month);
+  } catch (e: any) {
+    growthError = e?.message || 'No se pudieron generar los insights de Growth';
+  }
+
   return NextResponse.json({
     ok: true,
     month,
     user: userEmail,
+    growth: growth ? { insights: growth.insights } : null,
+    growthError,
     stats: {
       total_csv: rows.length,
       nuevos: nuevos.length,
