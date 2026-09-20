@@ -20,7 +20,7 @@ export const ADESC: Record<string, string> = {
 };
 
 // Fórmulas de ganancia: gan = ses * s - reg * r
-export const TARIFAS = {
-  AR: { s: 5.5, r: 1.5 },
-  UY: { s: 10.0, r: 2.0 },
-};
+// El valor por sesión cambia con el tiempo (AR pasó a 6.0 desde 2026-08), así
+// que vive en un solo lugar: TARIFAS_VIGENCIA en lib/scoring.ts, espejo de la
+// tabla growth_valor_sesion de Supabase. Se reexporta acá por compatibilidad.
+export { TARIFAS_VIGENCIA, tarifaVigente } from './scoring';

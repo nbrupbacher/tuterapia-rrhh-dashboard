@@ -11,6 +11,7 @@ import { TableFilters, type FilterState } from '@/components/TableFilters';
 import { DashboardTable } from '@/components/DashboardTable';
 import { TherapistModal } from '@/components/TherapistModal';
 import { ProgressView } from '@/components/ProgressView';
+import { GrowthView } from '@/components/GrowthView';
 import { IntervenidosView } from '@/components/IntervenidosView';
 import { NovedadesTicker } from '@/components/NovedadesTicker';
 import { segmento } from '@/lib/helpers';
@@ -301,6 +302,15 @@ export default function DashboardPage() {
           <div className="empty-wrap"><h3>No hay datos cargados todavía</h3></div>
         ) : view === 'prog' ? (
           <ProgressView pais={pais} />
+        ) : view === 'growth' ? (
+          <GrowthView
+            pais={pais}
+            userEmail={userEmail}
+            onTherapistClick={(id) => {
+              const t = therapists.find(x => x.id === id);
+              if (t) setSelectedTherapist(t);
+            }}
+          />
         ) : view === 'interv' ? (
           <IntervenidosView data={therapists.filter(t => t.intervencion != null)} pais={pais} onRowClick={setSelectedTherapist} />
         ) : (
