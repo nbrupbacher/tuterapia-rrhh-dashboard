@@ -7,7 +7,6 @@ import {
   mesLargo, PAIS_NOMBRE,
   type GrowthInsight, type Feedback, type TerapeutaRef,
 } from '@/lib/growth';
-import { num } from '@/lib/growth-templates';
 import type { PaisFilter } from '@/lib/types';
 
 interface Props {
@@ -200,18 +199,13 @@ export function InsightCard({ insight, mostrarPais, onFeedback, onTherapistClick
         {insight.que_pasa}
       </p>
 
-      {/* Oportunidad */}
+      {/* Potencial — una línea, en % de sesiones del país. Nunca en dólares. */}
       {insight.oportunidad && (
         <div style={{
           background: 'var(--bg3)', borderRadius: 7, padding: '9px 12px', marginBottom: 10,
+          fontSize: 13, color: 'var(--t)', lineHeight: 1.5, fontWeight: 500,
         }}>
-          <div style={{
-            fontSize: 9, fontWeight: 600, color: 'var(--v)', textTransform: 'uppercase',
-            letterSpacing: 0.6, marginBottom: 3,
-          }}>
-            Oportunidad
-          </div>
-          <div style={{ fontSize: 13, color: 'var(--t)', lineHeight: 1.5 }}>{insight.oportunidad}</div>
+          {insight.oportunidad}
         </div>
       )}
 
@@ -285,12 +279,6 @@ export function InsightCard({ insight, mostrarPais, onFeedback, onTherapistClick
           label="👎 Descarto"
           onClick={() => onFeedback(insight, 'descarto')}
         />
-        <div style={{ flex: 1 }} />
-        {insight.impacto_usd != null && insight.impacto_usd > 0 && (
-          <span style={{ fontSize: 11, color: 'var(--v)', fontWeight: 600, fontFamily: 'var(--m)' }}>
-            ~{num(insight.impacto_usd)} USD
-          </span>
-        )}
       </div>
     </div>
   );

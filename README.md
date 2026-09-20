@@ -90,15 +90,30 @@ oportunidad y con botones Sirve / Descarto para aprender qué tipo de insight es
 Si un generador no llega a su mínimo de casos, no genera insight: mejor nada que
 ruido.
 
+### Qué se muestra
+
+La tarjeta no muestra plata: muestra cuánto puede crecer el país, en porcentaje
+de sus sesiones mensuales (`potencial_pct`). `impacto_usd` se sigue calculando y
+queda guardado en el payload, pero no se muestra ni rankea.
+
+Los largos son límites duros, validados en `lib/growth-templates.ts`: título 60
+caracteres, cuerpo 220 y 2 frases, acción 100 y con un número. Si un texto se
+pasa, el insight no se publica y el error sale en la respuesta del recálculo:
+una tarjeta larga es peor que una tarjeta que falta.
+
+Hoy corren tres generadores: `reclutamiento`, `demanda_redirigible` y
+`concentracion`. Los otros nueve quedan en `enabled = false` en `growth_config`,
+con su código y sus umbrales intactos, para encenderlos sin reescribirlos.
+
 ### Ranking
 
-`score = impacto_usd normalizado × penalización × peso de feedback`
+`score = potencial_pct normalizado × penalización × peso de feedback`
 
 - **Penalización 0.5** si el mismo generador y país salió el mes anterior y su
   número principal se movió menos de 15%.
 - **Peso de feedback** según el histórico del generador, con piso 0.3 para que
   nunca desaparezca del todo.
-- Los insights sin impacto en USD usan un valor base configurable.
+- Los insights sin potencial estimable usan un valor base configurable.
 
 ### Tablas
 
