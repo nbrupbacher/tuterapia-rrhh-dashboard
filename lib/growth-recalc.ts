@@ -11,7 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { GENERADORES, type GeneratorPayload } from './growth';
 import {
   redactar, calcularScore, pesoFeedback, penalizacionRepetido,
-  RANKING_DEFAULT, type DraftInsight, type RankingCfg,
+  RANKING_DEFAULT, TextoLargoError, type DraftInsight, type RankingCfg,
 } from './growth-templates';
 
 const PAISES = ['AR', 'UY'] as const;
@@ -53,8 +53,15 @@ export async function recalcGrowthMonth(
       const { data, error } = await sb.rpc(`growth_gen_${gen}`, { p_month: month, p_pais: pais });
       if (error) { errores.push(`${gen}/${pais}: ${error.message}`); continue; }
 
-      const draft = redactar(gen, data as GeneratorPayload | null, { month, pais, minCasos: min_casos });
-      if (draft) drafts.push({ pais, draft });
+      // Un texto que se pasa de los límites no se publica: sale como error
+      // del recálculo en vez de llegar largo a la tarjeta.
+      try {
+        const draft = redactar(gen, data as GeneratorPayload | null, { month, pais, minCasos: min_casos });
+        if (draft) drafts.push({ pais, draft });
+      } catch (e) {
+        const detalle = e instanceof TextoLargoError ? e.message : String(e);
+        errores.push(`${pais}: ${detalle}`);
+      }
     }
   }
 
@@ -89,9 +96,9 @@ export async function recalcGrowthMonth(
 
   // Normalización sobre el mes completo (los dos países), así el orden se
   // mantiene coherente cuando la vista "Todos" los muestra juntos.
-  const impactoMax = Math.max(
-    ranking.impacto_base_usd,
-    ...drafts.map(d => d.draft.impacto_usd ?? ranking.impacto_base_usd),
+  const potencialMax = Math.max(
+    ranking.potencial_base_pct,
+    ...drafts.map(d => d.draft.potencial_pct ?? ranking.potencial_base_pct),
   );
 
   const rows = drafts.map(({ pais, draft }) => {
@@ -110,8 +117,9 @@ export async function recalcGrowthMonth(
       que_pasa: draft.que_pasa,
       oportunidad: draft.oportunidad,
       accion: draft.accion,
+      potencial_pct: draft.potencial_pct,
       impacto_usd: draft.impacto_usd,
-      score: calcularScore(draft.impacto_usd, impactoMax, penal, peso, ranking),
+      score: calcularScore(draft.potencial_pct, potencialMax, penal, peso, ranking),
       // numero_principal viaja en el payload: el mes que viene se compara
       // contra él para saber si el insight está repitiendo lo mismo.
       payload: { ...draft.payload, numero_principal: draft.numero_principal },

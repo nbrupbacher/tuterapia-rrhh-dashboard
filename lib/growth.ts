@@ -33,8 +33,12 @@ export interface GrowthInsight {
   generator: string;
   titulo: string;
   que_pasa: string;
+  /** La línea de potencial, ya redactada. */
   oportunidad: string | null;
   accion: string;
+  /** Sesiones adicionales estimadas sobre las del mes del país, en %. Rankea. */
+  potencial_pct: number | null;
+  /** Se calcula y se guarda, pero no se muestra en la tarjeta. */
   impacto_usd: number | null;
   score: number;
   payload: GeneratorPayload;
@@ -44,11 +48,19 @@ export interface GrowthInsight {
   created_at: string;
 }
 
-/** Los 10 generadores de la v1, en el orden en que se documentaron. */
+/**
+ * Todos los generadores que existen. El flag `enabled` de growth_config decide
+ * cuáles corren: hoy solo los tres primeros. Los demás quedan acá para poder
+ * encenderlos sin volver a escribirlos.
+ */
 export const GENERADORES = [
+  // Activos
+  'reclutamiento',
+  'demanda_redirigible',
+  'concentracion',
+  // Apagados por ahora
   'crecimiento_pais',
   'nuevos_destacados',
-  'demanda_redirigible',
   'primera_sesion',
   'cancelaciones_foco',
   'foco_acompanamiento',
