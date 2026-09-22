@@ -123,6 +123,11 @@ export default function DashboardPage() {
         });
       }
 
+      // Último día del mes analizado, en UTC para alinear con las fechas del
+      // CSV (que se parsean como YYYY-MM-DD, medianoche UTC).
+      const [lmY, lmM] = latestMonth.split('-').map(Number);
+      const cierreMesMs = Date.UTC(lmY, lmM, 0);
+
       const stateMap = new Map<string, TherapistStateRow>(
         (stateRows || []).map((s: TherapistStateRow) => [s.therapist_id, s])
       );
@@ -149,9 +154,13 @@ export default function DashboardPage() {
         const st = stateMap.get(t.id);
         const mt = metricsCurrent.get(t.id);
         const mp = metricsPrev.get(t.id);
+        // Antigüedad al cierre del mes analizado, no a hoy. Con Date.now() el
+        // badge de segmento seguía corriendo mientras el resto de la fila
+        // quedaba congelado en el mes, y se veían filas contradictorias como
+        // "Ventana 45-55" junto a "Junior".
         const inicioDate = t.inicio ? new Date(t.inicio) : null;
         const dias = inicioDate
-          ? Math.floor((Date.now() - inicioDate.getTime()) / (1000 * 60 * 60 * 24))
+          ? Math.floor((cierreMesMs - inicioDate.getTime()) / (1000 * 60 * 60 * 24))
           : 0;
 
         const iv = interventionMap.get(t.id) || null;

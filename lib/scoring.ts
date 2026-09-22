@@ -40,6 +40,15 @@ export interface MonthData {
   hs?: number; ses_canc?: number; ses_creadas?: number;
 }
 
+/** Datos del terapeuta que no son del mes: vienen de la tabla therapists. */
+export interface TherapistData {
+  /** Días en plataforma al último día del mes analizado. */
+  diasPlataformaFinMes: number;
+  /** Caída en primera sesión: acumulado histórico, no del mes. */
+  pctCaida1ra: number | null;
+  pacientes1raSesion: number | null;
+}
+
 export interface ScoreResult {
   // Capa Predicción (sin cambios)
   score: number;
@@ -76,6 +85,9 @@ export function calcScore(
   // reprocesar un mes viejo hay que pasar el mes del período, no el del
   // sistema, o el resultado sale corrido.
   month: string = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+  // Datos del terapeuta que no dependen del mes. Si no se pasan, se asume que
+  // los días al cierre son los del inicio y que no hay dato de primera sesión.
+  th: TherapistData = { diasPlataformaFinMes: diasPlat, pctCaida1ra: null, pacientes1raSesion: null },
 ): ScoreResult {
   const cv = tarifaVigente(pais, month);
   const mesActual = Number(month.split('-')[1]);
@@ -163,6 +175,9 @@ export function calcScore(
     benchmarkConversionPais: TSA[pais],
     mesActual,
     reg3m: rT,
+    diasPlataformaFinMes: th.diasPlataformaFinMes,
+    pctCaida1ra: th.pctCaida1ra,
+    pacientes1raSesion: th.pacientes1raSesion,
   });
 
   const resultadoAcciones = calcularAcciones(situaciones, mesesEnSituacionPrevio);

@@ -54,6 +54,16 @@ export interface DetectarInput {
 
   // Mejora 1 (capa 2): mes del período procesado (1-12) para filtro estacional
   mesActual: number;
+
+  // Días en plataforma al ÚLTIMO día del mes analizado.
+  // diasPlataforma es al primer día. Tener los dos extremos permite preguntar
+  // "¿pasó por tal rango en algún momento del mes?" en vez de mirar un solo
+  // día, que es lo que dejaba escapar la ventana 45-55.
+  diasPlataformaFinMes: number;
+
+  // Caída en primera sesión: acumulado histórico del terapeuta, no del mes.
+  pctCaida1ra: number | null;
+  pacientes1raSesion: number | null;
 }
 
 // ===== DETECTOR PRINCIPAL =====
@@ -66,8 +76,11 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   const minReg3m = d.pais === 'AR' ? UMBRALES.MIN_REG_3M_MEET_AR : UMBRALES.MIN_REG_3M_MEET_UY;
   const puedeRecibirMeet = d.reg3m >= minReg3m;
 
-  // === 1. RECIÉN INGRESADO === (<30 días)
-  if (d.diasPlataforma < UMBRALES.RECIEN_INGRESADO_DIAS) {
+  // === 1. RECIÉN INGRESADO === (<30 días al cerrar el mes)
+  // Se mira el fin de mes y no el día 1: alguien que arrancó el mes con 20
+  // días lo termina con 50 y ya cruzó la ventana 45-55. Mirando el día 1
+  // quedaba marcado como recién ingresado y la ventana no lo veía nunca.
+  if (d.diasPlataformaFinMes < UMBRALES.RECIEN_INGRESADO_DIAS) {
     situaciones.push('recien_ingresado');
     if (esArrancandoBien(d)) situaciones.push('arrancando_bien');
     return situaciones;
@@ -76,7 +89,10 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   // === 2. VENTANA 45-55 días ===
   // Va antes de sin_actividad_sostenida y en_abandono porque durante esta ventana
   // específica el tratamiento correcto es meet, no evaluar_continuidad.
-  if (d.diasPlataforma >= UMBRALES.VENTANA_INICIO_DIAS &&
+  // Solapamiento, no un punto: la ventana dura 11 días y antes se evaluaba
+  // solo el día 1 del mes, así que quien entraba y salía entre dos días 1
+  // no la tocaba nunca. Entra si en ALGÚN momento del mes estuvo en el rango.
+  if (d.diasPlataformaFinMes >= UMBRALES.VENTANA_INICIO_DIAS &&
       d.diasPlataforma <= UMBRALES.VENTANA_FIN_DIAS) {
     if (d.sesMes === 0) {
       situaciones.push('ventana_45_55_sin_actividad');
@@ -114,7 +130,7 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   // sin_conversion (dp <= 0) → Meet · conversion_baja (dp > 0 pero < benchmark) → WhatsApp
   // sin_conversion solo se asigna si tiene registros suficientes para poder hacer meet.
   const conv = clasificarConversion(d);
-  if (conv === 'sin_conversion' && puedeRecibirMeet) {
+  if (conv === 'sin_conversion' && puedeRecibirMeet && calificaParaMeet(d)) {
     situaciones.push('sin_conversion');
   } else if (conv === 'conversion_baja') {
     situaciones.push('conversion_baja');
@@ -224,6 +240,34 @@ function clasificarConversion(d: DetectarInput): 'sin_conversion' | 'conversion_
   if (conversionMes < d.benchmarkConversionPais) return 'conversion_baja';
 
   return null;
+}
+
+/**
+ * Filtro extra de sin_conversion, para que Meet no se llene de terapeutas que
+ * están funcionando bien.
+ *
+ * sin_conversion mide crecimiento NETO de pacientes, y pacientes_unicos es un
+ * stock: el que tiene la agenda llena y estable da variación cero todos los
+ * meses. Con los datos que hay no se puede separar a un paciente nuevo de uno
+ * que continúa, así que se agregan dos condiciones:
+ *
+ *   - Cuadrante A afuera: su agenda anda y retiene bien.
+ *   - Caída alta en primera sesión: la evidencia de que le llegan pacientes y
+ *     no los retiene.
+ *
+ * Al que todavía no tiene historia de primera sesión no se le puede exigir ese
+ * dato, así que queda EXENTO de la segunda condición — no excluido de Meet.
+ */
+function calificaParaMeet(d: DetectarInput): boolean {
+  if (d.cuadrante === 'A') return false;
+
+  const sinHistoriaSuficiente =
+    d.diasPlataformaFinMes <= UMBRALES.MEET_EXIME_CAIDA_DIAS ||
+    d.pctCaida1ra == null ||
+    (d.pacientes1raSesion ?? 0) < UMBRALES.MEET_CAIDA_1RA_MIN_PACIENTES;
+  if (sinHistoriaSuficiente) return true;
+
+  return d.pctCaida1ra >= UMBRALES.MEET_CAIDA_1RA_PCT;
 }
 
 function esBajaRetencion(d: DetectarInput): boolean {
