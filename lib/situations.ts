@@ -101,7 +101,13 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
     } else if (esVentanaVieneBien(d)) {
       situaciones.push('ventana_45_55_viene_bien');
     }
-    return situaciones;
+    // Las tres ramas no cubren todo: con más de 5 sesiones y tendencia
+    // "bajando" o "arrancando" no matchea ninguna. Antes el return se hacía
+    // igual y esa persona salía sin ninguna situación, con acción "Continúa",
+    // y además el corte le impedía que se evaluara cualquier otra cosa.
+    // Ahora solo se corta si la ventana efectivamente dijo algo; si no, sigue
+    // por la evaluación normal como cualquier otro terapeuta.
+    if (situaciones.length > 0) return situaciones;
   }
 
   // === 3. SIN ACTIVIDAD SOSTENIDA === (>30 días sin sesión, consolidado)

@@ -240,7 +240,22 @@ export async function POST(request: Request) {
   const { error: stErr } = await sb.from('therapist_state').upsert(stateRows, { onConflict: 'therapist_id,month' });
   if (stErr) return NextResponse.json({ error: `Error therapist_state: ${stErr.message}` }, { status: 500 });
 
-  // 7. Regenerar los insights de Growth del mes recién cargado.
+  // 7. Auditar la ventana 45-55: verificar el RESULTADO en vez de confiar en
+  // la regla. Si alguien pasó por la ventana y quedó sin mirar, sale acá.
+  // También avisa quién entra a la ventana el mes que viene.
+  let auditoria: { fallas: any[]; proximoMes: any[] } | null = null;
+  try {
+    const { data: filas } = await sb.rpc('auditoria_ventana_45_55', { p_month: month });
+    const todas = (filas || []) as any[];
+    auditoria = {
+      fallas: todas.filter(f => f.tipo !== 'proximo_mes'),
+      proximoMes: todas.filter(f => f.tipo === 'proximo_mes'),
+    };
+  } catch {
+    // La auditoría no debe voltear una carga que salió bien.
+  }
+
+  // 8. Regenerar los insights de Growth del mes recién cargado.
   // Si falla, la carga igual fue exitosa: se avisa y se puede reintentar con
   // el botón "Recalcular mes" de la pestaña.
   let growth: { insights: number } | null = null;
@@ -257,6 +272,7 @@ export async function POST(request: Request) {
     user: userEmail,
     growth: growth ? { insights: growth.insights } : null,
     growthError,
+    auditoriaVentana: auditoria,
     stats: {
       total_csv: rows.length,
       nuevos: nuevos.length,
