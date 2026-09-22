@@ -32,7 +32,23 @@ export function tarifaVigente(pais: Pais, month: string): Tarifa {
     ? vigentes[vigentes.length - 1]
     : TARIFAS_VIGENCIA[pais][0];
 }
-const MED: Record<Pais, number> = { AR: 16, UY: 124 };
+// Umbral de ganancia del cuadrante. Es un FALLBACK: desde 2026-08 el valor
+// que se usa es la mediana real del país en el mes que se está calculando.
+// Estos números quedaron viejos —en agosto la mediana real de AR era 39.8
+// contra este 16—, así que dos de cada tres argentinos contaban como
+// "ganancia alta" e inflaban A y B mientras C y D quedaban vacíos.
+// UY sí seguía calibrado: su 124 era la mediana exacta de agosto.
+const MED_FALLBACK: Record<Pais, number> = { AR: 16, UY: 124 };
+
+/**
+ * Ganancia del mes con la tarifa vigente. Se exporta porque el llamador
+ * necesita calcularla para TODO el país antes de sacar la mediana, y recién
+ * después puede pedir el score de cada terapeuta.
+ */
+export function calcGanMes(pais: Pais, month: string, sm: number, rm: number): number {
+  const cv = tarifaVigente(pais, month);
+  return Math.round((sm * cv.s - rm * cv.r) * 100) / 100;
+}
 const TSA: Record<Pais, number> = { AR: 0.094, UY: 0.161 };
 
 export interface MonthData {
@@ -62,6 +78,9 @@ export interface ScoreResult {
   acciones_pendientes: AccionPendiente[];
   meses_en_situacion: Record<string, number>;
 
+  /** Umbral de ganancia usado para el cuadrante: la mediana del país ese mes. */
+  umbral_gan: number;
+
   // Métricas calculadas (sin cambios)
   ses_paciente_3m: number;
   gan_mes: number;
@@ -88,6 +107,10 @@ export function calcScore(
   // Datos del terapeuta que no dependen del mes. Si no se pasan, se asume que
   // los días al cierre son los del inicio y que no hay dato de primera sesión.
   th: TherapistData = { diasPlataformaFinMes: diasPlat, pctCaida1ra: null, pacientes1raSesion: null },
+  // Mediana de gan_mes del país en este mes. El llamador la calcula sobre
+  // todos los terapeutas del país —así se definió el umbral original— y la
+  // pasa igual para todos. Sin ella se cae al fallback fijo.
+  medianaGanPais: number | null = null,
 ): ScoreResult {
   const cv = tarifaVigente(pais, month);
   const mesActual = Number(month.split('-')[1]);
@@ -100,6 +123,7 @@ export function calcScore(
   const rT = rm + (prev?.rm ?? 0) + (prev2?.rm ?? 0);
   const sp3 = pT > 0 ? Math.round((sT / pT) * 100) / 100 : 0;
   const gm = Math.round((sm * cv.s - rm * cv.r) * 100) / 100;
+  const umbralGan = medianaGanPais ?? MED_FALLBACK[pais];
 
   // ============ Tendencia ============
   const sE = prev2?.sm ?? prev?.sm ?? null;
@@ -114,7 +138,7 @@ export function calcScore(
   // ============ Cuadrante ============
   let cuad: Cuadrante = 'D';
   if (sm > 0 && pm > 0) {
-    const alt = gm >= MED[pais];
+    const alt = gm >= umbralGan;
     const cal = sp3 >= 2.0;
     cuad = alt && cal ? 'A' : (alt ? 'B' : (cal ? 'C' : 'D'));
   }
@@ -188,6 +212,7 @@ export function calcScore(
 
   return {
     score, zona, cuadrante: cuad, tendencia: tend,
+    umbral_gan: umbralGan,
     situaciones,
     accion: resultadoAcciones.accion,
     acciones_pendientes: resultadoAcciones.accionesPendientes,

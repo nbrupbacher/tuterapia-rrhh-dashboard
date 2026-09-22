@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { calcScore, type MonthData } from '@/lib/scoring';
+import { calcScore, calcGanMes, type MonthData } from '@/lib/scoring';
 import type { CsvRow } from '@/lib/csvParser';
 import type { Pais } from '@/lib/types';
 import { recalcGrowthMonth } from '@/lib/growth-recalc';
@@ -164,6 +164,25 @@ export async function POST(request: Request) {
   // YYYY-MM-DD (medianoche UTC). Si no, el offset del server corre un día.
   const lastDayOfMonthMs = Date.UTC(yy, mm, 0);
 
+  // El umbral del cuadrante es la mediana de ganancia del país en ESTE mes,
+  // así que hay que calcularla antes de pedir el score de nadie: primero la
+  // ganancia de todos, después la mediana, después el score de cada uno.
+  const medianaPorPais = new Map<string, number>();
+  for (const pais of ['AR', 'UY'] as Pais[]) {
+    const ganancias = rows
+      .filter(r => r.pais === pais)
+      .map(r => calcGanMes(pais, month, r.sesiones_totales, r.registros_mes))
+      .sort((a, b) => a - b);
+    if (ganancias.length === 0) continue;
+    // Mediana sobre todo el país, no solo los activos: así se definió el
+    // umbral original (el 124 de UY era exactamente esa mediana).
+    const mitad = Math.floor(ganancias.length / 2);
+    const mediana = ganancias.length % 2 === 0
+      ? (ganancias[mitad - 1] + ganancias[mitad]) / 2
+      : ganancias[mitad];
+    medianaPorPais.set(pais, mediana);
+  }
+
   const stateRows = rows.map(r => {
     // Días en plataforma al inicio del mes target
     const inicioDate = r.inicio ? new Date(r.inicio) : null;
@@ -213,6 +232,7 @@ export async function POST(request: Request) {
         pctCaida1ra: primeraSesionMap.get(r.id)?.pct ?? null,
         pacientes1raSesion: primeraSesionMap.get(r.id)?.pac ?? null,
       },
+      medianaPorPais.get(r.pais) ?? null,
     );
 
     return {
@@ -273,6 +293,7 @@ export async function POST(request: Request) {
     growth: growth ? { insights: growth.insights } : null,
     growthError,
     auditoriaVentana: auditoria,
+    medianaGanancia: Object.fromEntries(medianaPorPais),
     stats: {
       total_csv: rows.length,
       nuevos: nuevos.length,
