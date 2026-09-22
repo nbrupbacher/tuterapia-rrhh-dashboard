@@ -92,8 +92,14 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
   // Solapamiento, no un punto: la ventana dura 11 días y antes se evaluaba
   // solo el día 1 del mes, así que quien entraba y salía entre dos días 1
   // no la tocaba nunca. Entra si en ALGÚN momento del mes estuvo en el rango.
-  if (d.diasPlataformaFinMes >= UMBRALES.VENTANA_INICIO_DIAS &&
-      d.diasPlataforma <= UMBRALES.VENTANA_FIN_DIAS) {
+  // Las tres ramas cubren todo el espacio de sesiones: 0 / 1-5 / más de 5.
+  // No se corta la evaluación: estar en la ventana no tapa el resto de lo que
+  // le pasa al terapeuta, así que sigue acumulando situaciones abajo.
+  const enVentana =
+    d.diasPlataformaFinMes >= UMBRALES.VENTANA_INICIO_DIAS &&
+    d.diasPlataforma <= UMBRALES.VENTANA_FIN_DIAS;
+
+  if (enVentana) {
     if (d.sesMes === 0) {
       situaciones.push('ventana_45_55_sin_actividad');
     } else if (esVentanaPocaActividad(d)) {
@@ -101,17 +107,19 @@ export function detectarSituaciones(d: DetectarInput): SituacionId[] {
     } else if (esVentanaVieneBien(d)) {
       situaciones.push('ventana_45_55_viene_bien');
     }
-    return situaciones;
   }
 
   // === 3. SIN ACTIVIDAD SOSTENIDA === (>30 días sin sesión, consolidado)
-  if (esSinActividadSostenida(d)) {
+  // No aplica dentro de la ventana: ahí el tratamiento correcto es la meet de
+  // arranque, no tratarlo como un caso consolidado de inactividad.
+  if (!enVentana && esSinActividadSostenida(d)) {
     situaciones.push('sin_actividad_sostenida');
     return situaciones;
   }
 
   // === 4. EN ABANDONO === (<6m + 0 sesiones + tendencia sin act/bajando)
-  if (esEnAbandono(d)) {
+  // Tampoco aplica dentro de la ventana, por lo mismo.
+  if (!enVentana && esEnAbandono(d)) {
     situaciones.push('en_abandono');
     return situaciones;
   }
@@ -196,8 +204,15 @@ function esVentanaPocaActividad(d: DetectarInput): boolean {
   return d.sesMes > 0 && d.sesMes <= 5;
 }
 
+/**
+ * Más de 5 sesiones en la ventana es venir bien, sin mirar la tendencia.
+ * A los 45-55 días la tendencia se calcula contra el primer mes en plataforma,
+ * que suele ser parcial y con 0 sesiones, así que casi todos salen
+ * "arrancando". Exigir subiendo/estable dejaba afuera a 26 de 27 casos, entre
+ * ellos alguien con 31 sesiones en su segundo mes.
+ */
 function esVentanaVieneBien(d: DetectarInput): boolean {
-  return d.sesMes > 5 && (d.tendencia === 'subiendo' || d.tendencia === 'estable');
+  return d.sesMes > 5;
 }
 
 function esAlertaArranque(d: DetectarInput): boolean {
