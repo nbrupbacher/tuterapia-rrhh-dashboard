@@ -51,8 +51,20 @@ export async function POST(request: Request) {
   const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
 
   // 1. Cargar terapeutas existentes
-  const { data: existing } = await sb.from('therapists').select('id, activo').limit(5000);
+  // pct_caida_1ra_sesion se carga aparte (upload-primera-sesion) y no viene en
+  // este CSV, así que se lee de la tabla: el detector de situaciones la usa
+  // para decidir si sin_conversion amerita una Meet.
+  const { data: existing } = await sb
+    .from('therapists')
+    .select('id, activo, pct_caida_1ra_sesion, pacientes_1ra_sesion')
+    .limit(5000);
   const existingMap = new Map<string, boolean>((existing || []).map((t: any) => [t.id, t.activo]));
+  const primeraSesionMap = new Map<string, { pct: number | null; pac: number | null }>(
+    (existing || []).map((t: any) => [t.id, {
+      pct: t.pct_caida_1ra_sesion != null ? Number(t.pct_caida_1ra_sesion) : null,
+      pac: t.pacientes_1ra_sesion ?? null,
+    }])
+  );
 
   const csvIds = new Set(rows.map(r => r.id));
 
@@ -158,6 +170,12 @@ export async function POST(request: Request) {
     const dias = inicioDate
       ? Math.floor((targetDate.getTime() - inicioDate.getTime()) / (1000 * 60 * 60 * 24))
       : 0;
+    // Días al CIERRE del mes. Con los dos extremos, el detector puede preguntar
+    // "¿pasó por la ventana 45-55 en algún momento del mes?" en vez de mirar
+    // solo el día 1, que dejaba escapar a la mayoría.
+    const diasFinMes = inicioDate
+      ? Math.floor((lastDayOfMonthMs - inicioDate.getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
 
     // Días sin sesión al fin del mes target.
     // El CSV se exporta unos días después del cierre, así que puede traer
@@ -190,6 +208,11 @@ export async function POST(request: Request) {
       mesesPrevios,
       diasSinSesion,
       month,
+      {
+        diasPlataformaFinMes: diasFinMes,
+        pctCaida1ra: primeraSesionMap.get(r.id)?.pct ?? null,
+        pacientes1raSesion: primeraSesionMap.get(r.id)?.pac ?? null,
+      },
     );
 
     return {

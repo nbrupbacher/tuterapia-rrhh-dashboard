@@ -165,6 +165,21 @@ export const UMBRALES = {
   // Mínimo de registros en 3 meses para que sin_conversion dispare meet
   MIN_REG_3M_MEET_UY: 19,
   MIN_REG_3M_MEET_AR: 32,
+
+  // sin_conversion medía crecimiento NETO de pacientes, y pacientes_unicos es
+  // un stock: un terapeuta con la agenda estable da variación cero todos los
+  // meses. Eso metía en Meet a los mejores del país. Dos filtros nuevos:
+  //   1. El cuadrante A queda afuera (su agenda anda; el neto cero es un
+  //      artefacto de la medición, no una señal).
+  //   2. Se exige caída alta en primera sesión, que es la evidencia real de
+  //      que le llegan pacientes y no los retiene.
+  // Los que todavía no tienen historia de primera sesión quedan EXENTOS del
+  // punto 2 (no excluidos de Meet): entran solo con sin_conversion.
+  MEET_CAIDA_1RA_PCT: 50,
+  MEET_CAIDA_1RA_MIN_PACIENTES: 3,
+  // Hasta acá no se le exige el dato de primera sesión. 180 días = el mismo
+  // NUEVO_MAX_DIAS de arriba; bajarlo a 90 lo alinea con el badge "Nuevo".
+  MEET_EXIME_CAIDA_DIAS: 180,
 };
 
 // ===== COLOR → CLASE CSS =====
