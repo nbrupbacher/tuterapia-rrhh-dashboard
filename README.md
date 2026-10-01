@@ -126,6 +126,31 @@ con su código y sus umbrales intactos, para encenderlos sin reescribirlos.
 - `growth_insights` — un insight por `(month, pais, generator)`. Recalcular hace
   upsert sin tocar las columnas de feedback, así lo ya marcado se conserva.
 
+### Primera sesión: pendiente
+
+`primera_sesion_snapshots` guarda el **acumulado histórico** de cada terapeuta,
+no el mes. El dato mensual sale de restar dos snapshots, pero viene inflado: el
+paciente que tuvo su primera sesión a fin de mes figura como "no volvió" aunque
+todavía no le tocaba. Está medido: entre agosto y septiembre de 2026, 40
+terapeutas bajaron su cantidad de pacientes sin segunda sesión — 52 pacientes
+que figuraban como perdidos volvieron después.
+
+De ahí las reglas que aplica el generador:
+
+- `primeras_del_mes = pacientes_1ra_sesion(mes) − pacientes_1ra_sesion(mes anterior)`,
+  y lo mismo para `pacientes_sin_2da`.
+- **Nunca** comparar el número mensual contra el acumulado histórico: uno está
+  maduro y el otro no, esa comparación no significa nada.
+- La única comparación válida es mensual contra mensual, porque arrastra el
+  mismo sesgo todos los meses. Eso necesita tres snapshots.
+- Si un terapeuta no tiene snapshot del mes anterior, no se le calcula el mes
+  ni se lo cuenta en el total del país.
+
+**Pendiente:** la medición correcta —primera sesión ocurrida en el mes y
+segunda dentro de los 30 días— sale de los datos crudos de sesiones, no de
+estos snapshots. Mientras tanto el generador mide lo que puede medir y queda
+apagado hasta tener tres snapshots (octubre 2026).
+
 ### Cosas a tener en cuenta con los datos
 
 - Las comparaciones entre meses se hacen **en sesiones, no en USD**: el valor por

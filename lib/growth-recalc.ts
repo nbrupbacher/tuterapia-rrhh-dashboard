@@ -11,7 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { GENERADORES, type GeneratorPayload } from './growth';
 import {
   redactar, calcularScore, pesoFeedback, penalizacionRepetido,
-  RANKING_DEFAULT, TextoLargoError, type DraftInsight, type RankingCfg,
+  RANKING_DEFAULT, SCORE_FIJO, TextoLargoError, type DraftInsight, type RankingCfg,
 } from './growth-templates';
 
 const PAISES = ['AR', 'UY'] as const;
@@ -96,9 +96,12 @@ export async function recalcGrowthMonth(
 
   // Normalización sobre el mes completo (los dos países), así el orden se
   // mantiene coherente cuando la vista "Todos" los muestra juntos.
+  // Los insights fijos no entran en la normalización: son contexto, no
+  // compiten por potencial, y si entraran correrían la escala de los demás.
   const potencialMax = Math.max(
     ranking.potencial_base_pct,
-    ...drafts.map(d => d.draft.potencial_pct ?? ranking.potencial_base_pct),
+    ...drafts.filter(d => !d.draft.fijo)
+             .map(d => d.draft.potencial_pct ?? ranking.potencial_base_pct),
   );
 
   const rows = drafts.map(({ pais, draft }) => {
@@ -119,7 +122,10 @@ export async function recalcGrowthMonth(
       accion: draft.accion,
       potencial_pct: draft.potencial_pct,
       impacto_usd: draft.impacto_usd,
-      score: calcularScore(draft.potencial_pct, potencialMax, penal, peso, ranking),
+      // El insight de contexto va primero del país, fuera del ranking.
+      score: draft.fijo
+        ? SCORE_FIJO
+        : calcularScore(draft.potencial_pct, potencialMax, penal, peso, ranking),
       // numero_principal viaja en el payload: el mes que viene se compara
       // contra él para saber si el insight está repitiendo lo mismo.
       payload: { ...draft.payload, numero_principal: draft.numero_principal },

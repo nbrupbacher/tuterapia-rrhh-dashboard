@@ -16,7 +16,7 @@
 // una tarjeta larga es peor que una tarjeta que falta.
 
 import type { GeneratorPayload, TerapeutaRef } from './growth';
-import { mesNombre } from './growth';
+import { mesNombre, PAIS_NOMBRE } from './growth';
 
 export const LIMITES = {
   titulo: 60,
@@ -29,8 +29,8 @@ export interface DraftInsight {
   generator: string;
   titulo: string;
   que_pasa: string;
-  /** La línea de potencial. Una sola, ya redactada. */
-  oportunidad: string;
+  /** La línea de potencial, ya redactada. El insight de contexto no lleva. */
+  oportunidad: string | null;
   accion: string;
   potencial_pct: number | null;
   /** Se sigue calculando y guardando en el payload, pero no se muestra. */
@@ -38,6 +38,17 @@ export interface DraftInsight {
   payload: GeneratorPayload;
   /** Número que define el insight. Detecta si repite el del mes anterior. */
   numero_principal: number;
+  /**
+   * Va primero en la lista y fuera del ranking por potencial. Es el contexto
+   * que da sentido a los demás, no compite con ellos.
+   */
+  fijo?: boolean;
+  /**
+   * Exime a la acción de llevar un número. Solo para los insights de contexto:
+   * "frenar las altas y revisar de dónde vienen los pacientes" es una acción
+   * concreta aunque no tenga una cifra adentro.
+   */
+  accionSinNumero?: boolean;
 }
 
 export interface TemplateCtx {
@@ -63,6 +74,11 @@ export function dec(v: unknown): string {
 }
 
 const plural = (c: number, uno: string, varios: string) => (c === 1 ? uno : varios);
+
+/** 'AR' → 'Argentina'. Para no repetir el código de país en medio de una frase. */
+function pais(ctx: TemplateCtx): string {
+  return PAIS_NOMBRE[ctx.pais] ?? ctx.pais;
+}
 
 // ===== Validación de largo =====
 
@@ -90,10 +106,10 @@ export function validar(d: DraftInsight): DraftInsight {
     fallas.push(`acción de ${d.accion.length} caracteres, máximo ${LIMITES.accion}`);
   }
   // La acción tiene que ser concreta: un verbo y un número.
-  if (!/\d/.test(d.accion)) {
+  if (!d.accionSinNumero && !/\d/.test(d.accion)) {
     fallas.push('la acción no tiene ningún número');
   }
-  if (d.oportunidad.includes('\n')) {
+  if (d.oportunidad != null && d.oportunidad.includes('\n')) {
     fallas.push('el potencial tiene que ser una sola línea');
   }
 
@@ -109,12 +125,81 @@ type Template = (p: GeneratorPayload, ctx: TemplateCtx) => DraftInsight | null;
 
 const templates: Record<string, Template> = {
 
+  // 0. Crecimiento del país — el contexto del mes. Va siempre primero y
+  //    fuera del ranking: es lo que le da sentido a los demás insights.
+  crecimiento_pais: (p, ctx) => {
+    if (!p.serie_completa) return null;
+
+    const varPct = n(p.var_pct);
+    const dProd = n(p.delta_productivos);
+    const cae = varPct < 0;
+    const desde = mesNombre(String(p.mes_2));
+    const hasta = mesNombre(String(p.mes));
+
+    // El movimiento de terapeutas productivos, en la misma ventana que la
+    // variación, para que los dos números se puedan leer juntos.
+    const movimiento = `Hay ${num(Math.abs(dProd))} ${plural(Math.abs(dProd), 'terapeuta productivo', 'terapeutas productivos')} `
+      + `${dProd < 0 ? 'menos' : 'más'} y entraron ${num(p.entraron)} nuevos.`;
+
+    if (cae) {
+      return {
+        generator: 'crecimiento_pais',
+        titulo: `${pais(ctx)} lleva dos meses bajando`,
+        que_pasa: `Las sesiones pasaron de ${num(p.ses_2)} en ${desde} a ${num(p.ses)} en ${hasta}, `
+          + `un ${dec(Math.abs(varPct))}% menos. ${movimiento}`,
+        oportunidad: null,
+        accion: `Frenar las altas y revisar de dónde vienen los pacientes.`,
+        potencial_pct: null,
+        impacto_usd: null,
+        payload: p,
+        numero_principal: varPct,
+        fijo: true,
+        accionSinNumero: true,
+      };
+    }
+
+    return {
+      generator: 'crecimiento_pais',
+      titulo: `${pais(ctx)} creció ${dec(varPct)}% en dos meses`,
+      que_pasa: `Las sesiones pasaron de ${num(p.ses_2)} en ${desde} a ${num(p.ses)} en ${hasta}. ${movimiento}`,
+      oportunidad: null,
+      accion: `Sostener el ritmo de incorporación de los últimos dos meses.`,
+      potencial_pct: null,
+      impacto_usd: null,
+      payload: p,
+      numero_principal: varPct,
+      fijo: true,
+      accionSinNumero: true,
+    };
+  },
+
   // 1. Reclutamiento — cuánto crece el país si sumamos terapeutas
   reclutamiento: (p, ctx) => {
     const nuevos = n(p.n_terapeutas);
     if (nuevos < ctx.minCasos || !n(p.ses_prom_nuevo)) return null;
 
     const altas = n(p.altas);
+
+    // Si el país viene cayendo, sumar gente reparte los mismos pacientes
+    // entre más terapeutas. La recomendación se da vuelta.
+    if (p.frenar === true) {
+      const motivo = p.cae_sesiones && p.cae_registros
+        ? 'Las sesiones y los registros'
+        : p.cae_sesiones ? 'Las sesiones' : 'Los registros';
+      return {
+        generator: 'reclutamiento',
+        titulo: 'Conviene esperar antes de sumar terapeutas',
+        que_pasa: `${motivo} de ${pais(ctx)} bajan hace dos meses. `
+          + `Sumar gente ahora reparte los mismos pacientes entre más terapeutas.`,
+        oportunidad: null,
+        accion: `Esperar 1 mes de crecimiento antes de abrir búsquedas.`,
+        potencial_pct: 0,
+        impacto_usd: 0,
+        payload: p,
+        numero_principal: n(p.ses_prom_nuevo),
+      };
+    }
+
     const unoDeCada = p.uno_de_cada != null ? n(p.uno_de_cada) : null;
     const porcion = unoDeCada
       ? `1 de cada ${unoDeCada} sesiones del país`
@@ -182,6 +267,47 @@ const templates: Record<string, Template> = {
       numero_principal: n(p.pct_top_n),
     };
   },
+
+  // 4. Primera sesión — medición MENSUAL, por diferencia de snapshots.
+  //
+  // Los snapshots guardan el acumulado histórico, no el mes. El mes sale de
+  // restar dos snapshots, pero ese número viene inflado: el paciente que tuvo
+  // su primera sesión a fin de mes figura como "no volvió" aunque todavía no
+  // le tocaba volver. Entre agosto y septiembre, 40 terapeutas bajaron su
+  // cantidad de pacientes sin segunda sesión: 52 pacientes que figuraban como
+  // perdidos volvieron después.
+  //
+  // De ahí las dos reglas: nunca comparar el mensual contra el acumulado
+  // histórico —uno está maduro y el otro no, la comparación no significa
+  // nada— y comparar solo mensual contra mensual, que arrastra el mismo
+  // sesgo todos los meses. Eso recién es posible con tres snapshots.
+  //
+  // PENDIENTE: la medición correcta (primera sesión en el mes y segunda
+  // dentro de los 30 días) sale de los datos crudos de sesiones, no de acá.
+  primera_sesion: (p, ctx) => {
+    // Con dos snapshots hay un solo dato mensual y nada con qué compararlo.
+    if (p.comparable !== true) return null;
+    const casos = n(p.n_terapeutas);
+    if (casos < ctx.minCasos) return null;
+
+    const pct = n(p.pct_caida);
+    const pctPrev = n(p.pct_caida_prev);
+    const sube = pct > pctPrev;
+
+    return {
+      generator: 'primera_sesion',
+      titulo: sube ? 'Vuelven menos pacientes a la segunda sesión'
+                   : 'Vuelven más pacientes a la segunda sesión',
+      que_pasa: `De las ${num(p.primeras)} primeras sesiones de ${mesNombre(ctx.month)}, `
+        + `${num(p.sin_segunda)} no tuvieron segunda: ${dec(pct)}% contra ${dec(pctPrev)}% el mes pasado.`,
+      oportunidad: `Mover ese ${dec(pct)}% al ${dec(pctPrev)}% del mes pasado son ${num(Math.abs(n(p.primeras) * (pct - pctPrev) / 100))} pacientes más.`,
+      accion: `Revisar la primera sesión con los ${num(casos)} terapeutas medidos.`,
+      potencial_pct: null,
+      impacto_usd: null,
+      payload: p,
+      numero_principal: pct,
+    };
+  },
 };
 
 /**
@@ -243,6 +369,13 @@ export function penalizacionRepetido(
   const cambio = Math.abs(numeroActual - numeroAnterior) / Math.abs(numeroAnterior);
   return cambio < cfg.umbral_cambio_pct ? cfg.penalizacion_repetido : 1;
 }
+
+/**
+ * Score de los insights fijos. Queda por encima de cualquier score normalizado
+ * (que nunca pasa de 1) para que la UI, que ordena por score, los ponga
+ * primero sin necesitar una columna de orden aparte.
+ */
+export const SCORE_FIJO = 1000;
 
 /** score = potencial normalizado × penalización × peso de feedback */
 export function calcularScore(

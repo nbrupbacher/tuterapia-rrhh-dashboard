@@ -313,7 +313,9 @@ export function TherapistModal({ therapist, userEmail, currentMonth, onClose, on
                 className="mst2"
                 title={
                   p1.value != null
-                    ? `${r.pacientesSin2da ?? 0} de ${p1.n} pacientes no agendaron una 2da sesión con este terapeuta`
+                    ? `${r.pacientesSin2da ?? 0} de ${p1.n} pacientes no agendaron una 2da sesión con este terapeuta. `
+                      + `Es el acumulado histórico, no el mes: cuando se muestre el dato mensual hay que aclarar `
+                      + `que los pacientes del final del mes todavía pueden volver.`
                     : p1.n != null
                       ? `Muestra insuficiente (${p1.n} paciente${p1.n === 1 ? '' : 's'}, mínimo ${MIN_PACIENTES_1RA_SESION})`
                       : 'Sin datos cargados'
