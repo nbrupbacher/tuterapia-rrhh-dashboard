@@ -18,10 +18,15 @@ aplicar algo que toque datos, y esperá el OK.
 No los saques del proyecto, no los pegues en servicios externos, no los uses
 para armar ejemplos fuera de este repo.
 
-**El merge a `main` y las migraciones los aprueba el dueño del proyecto.**
-Cualquiera propone y experimenta en una rama; el preview de Vercel permite ver
-el cambio funcionando sin tocar producción. El paso a producción no es
-automático por decisión, aunque técnicamente lo sea el deploy.
+**El código se mergea solo; la base, no.** Cualquiera del equipo puede
+mergear su PR a `main` y eso deploya a producción. Es seguro porque se
+revierte: `git revert` más el rollback de Vercel, un click. Lo que NO se
+revierte es lo que se escribe en Supabase — migraciones y recálculos de meses
+—, y eso necesita el OK del dueño del proyecto antes de aplicarse.
+
+Si una tarea toca las dos cosas, el orden es: mergear el código primero,
+después recalcular. Al revés, producción queda mostrando algo que el código
+deployado no sabe regenerar.
 
 ## Cómo correrlo
 
@@ -142,5 +147,8 @@ Comentarios y textos de UI en español. Los comentarios explican **por qué**,
 no qué hace la línea; varios de los de este repo documentan un bug que ya
 ocurrió, así que no los borres al refactorizar.
 
-Rama desde `main`, PR, merge. Vercel deploya `main` a producción y arma un
-preview por rama.
+Rama desde `main`, PR, merge. Vercel deploya `main` a producción.
+
+Todo PR pasa por CI (`.github/workflows/ci.yml`): typecheck y build. Corre sin
+secretos, con variables de Supabase de mentira, porque el build solo necesita
+que existan. Si CI está en rojo, no se mergea.

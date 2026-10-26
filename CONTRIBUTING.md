@@ -18,14 +18,13 @@ Estos no los podés conseguir solo. Pediéselos al dueño del proyecto:
 |---|---|---|
 | **GitHub** | Collaborator en el repo `tuterapia-rrhh-dashboard` | Ver el código, crear ramas, abrir PRs |
 | **Supabase** | Miembro del proyecto | Ver los datos y las API keys |
-| **Vercel** | Miembro del team | Ver deploys y leer errores cuando algo falla |
+
+**Vercel no hace falta.** El plan actual no permite sumar gente, y tampoco lo
+necesitás: más abajo está cómo ver tu cambio funcionando sin eso.
 
 Usá una cuenta de GitHub **personal**, no una casilla compartida del equipo.
 Si tres personas entran con el mismo usuario, después no se sabe quién hizo
 qué.
-
-Vercel es el menos urgente: los deploys salen solos. Lo vas a necesitar
-cuando algo falle y haya que leer el log.
 
 ## Paso 2 — Conectar GitHub con Claude
 
@@ -78,9 +77,10 @@ filas cambiarían y esperá el OK.
 **2. Los datos son reales y nominales.** Nombres, emails y teléfonos de ~480
 terapeutas. No salen del proyecto.
 
-**3. El merge a `main` y las migraciones los aprueba el dueño.** Vos proponés
-en una rama y lo mostrás funcionando con el preview de Vercel. Experimentá
-todo lo que quieras ahí.
+**3. El código lo mergeás vos; la base, no.** Podés mergear tu propio PR a
+`main` si CI está en verde. Se revierte en un click si algo sale mal. Lo que
+sí necesita el OK del dueño es todo lo que escribe en Supabase: migraciones y
+recálculos de meses, porque eso no se revierte.
 
 **4. La `SUPABASE_SERVICE_ROLE_KEY` saltea todos los permisos.** Solo va en
 `.env.local` y en la configuración del entorno. Nunca en el código, nunca en
@@ -91,10 +91,28 @@ un chat, nunca en una variable `NEXT_PUBLIC_`.
 ## El flujo de trabajo
 
 1. Rama nueva desde `main`.
-2. Cambios. Si es código, `npm run build` antes de abrir el PR.
-3. Push y PR. Vercel arma un preview automático de la rama.
-4. Mirás el preview, confirmás que funciona.
-5. El dueño mergea. Vercel deploya `main` a producción solo.
+2. Cambios.
+3. **Lo probás corriendo la app**: `npm run dev`, entrás con tu usuario y
+   mirás que haga lo que esperabas. Esto reemplaza al preview de Vercel y es
+   mejor, porque iterás sin esperar un deploy.
+4. Push y PR. CI corre typecheck y build solo.
+5. Con CI en verde, mergeás. Vercel deploya `main` a producción.
+
+Si el cambio además necesita una migración o recalcular un mes, eso va
+aparte y lo aprueba el dueño. Primero se mergea el código, después se toca la
+base.
+
+### Si CI está en rojo
+
+El error que ves en GitHub es el mismo que te da `npm run build` local. Casi
+siempre es un error de TypeScript. Arreglalo, pusheá de nuevo y CI se vuelve a
+correr solo.
+
+### Si algo falla ya en producción
+
+Los errores de runtime se ven en la consola del navegador (F12): la app es
+casi toda cliente. Si hay que volver atrás, avisá al dueño, que tiene el
+rollback de Vercel.
 
 ## Por dónde empezar a leer
 
@@ -116,6 +134,8 @@ Si querés entender el proyecto antes de tocarlo, en este orden:
 
 ## Si algo se rompe
 
-El historial de deploys de Vercel permite volver al anterior en un click. Los
-cambios de código se revierten solos al hacer rollback; **los cambios en la
-base no**. Por eso la regla 1.
+Un cambio de código se revierte en un click: `git revert` del PR, o el
+rollback en el historial de deploys de Vercel. Por eso podés mergear tranquilo.
+
+**Los cambios en la base no se revierten.** Por eso la regla 1 y por eso las
+migraciones las aprueba el dueño.

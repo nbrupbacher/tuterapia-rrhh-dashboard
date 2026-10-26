@@ -1,0 +1,37 @@
+# Verificación automática de cada PR.
+#
+# Corre sin ningún secreto: el build solo necesita que las variables de
+# Supabase EXISTAN (las páginas crean el cliente en build time), no que sean
+# válidas. Por eso van valores de mentira y no hace falta guardar claves acá.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  verificar:
+    name: Typecheck y build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Build
+        run: npm run build
+        env:
+          # Valores de mentira a propósito. Ver el comentario de arriba.
+          NEXT_PUBLIC_SUPABASE_URL: https://ci.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-dummy-key
