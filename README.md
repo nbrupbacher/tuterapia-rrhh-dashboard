@@ -18,17 +18,33 @@ Dashboard de performance de terapeutas, conectado a Supabase.
 - Supabase (auth + DB)
 - Vercel (hosting)
 
+## Empezar
+
+¿Entrás por primera vez? Leé **[CONTRIBUTING.md](CONTRIBUTING.md)**: accesos,
+setup y las reglas del proyecto.
+
 ## Variables de entorno
 
-Necesitás dos:
+Son **tres**. Las tres salen de Supabase → Settings → API, y están
+documentadas en [`.env.example`](.env.example):
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJI...
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJI...
 ```
 
+Las dos `NEXT_PUBLIC_` viajan al navegador —la anon key es pública por
+diseño, lo que la regula es RLS—. La tercera **saltea RLS** y solo se usa en
+el servidor (`app/api/*`): la necesitan la carga de CSV y el recálculo de
+Growth. Sin ella la app levanta igual, pero esas dos cosas fallan.
+
 En **Vercel**: Project Settings → Environment Variables.
-En **local** (opcional): crear `.env.local` con esos dos valores.
+En **local**: `cp .env.example .env.local` y completar.
+
+> `npm run build` sin estas variables falla en el prerender de `/` y
+> `/login`. No está roto: esas páginas crean el cliente de Supabase en build
+> time.
 
 ## Estructura
 
