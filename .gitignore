@@ -16,4 +16,3 @@ tsconfig.tsbuildinfo
 
 # misc
 .DS_Store
-package-lock.json
