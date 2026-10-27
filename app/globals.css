@@ -24,7 +24,7 @@ button { font-family: inherit; }
 
 .hdr { padding:12px 24px; border-bottom:1px solid var(--bd); display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
 .logo { display:flex; align-items:center; gap:9px; }
-.lm { width:26px; height:26px; border-radius:7px; background:var(--ac); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#fff; }
+.lm { width:26px; height:26px; border-radius:7px; background:var(--v); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#fff; }
 .ln { font-size:13px; font-weight:600; }
 .ls { font-size:10px; color:var(--t2); }
 .hr { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
