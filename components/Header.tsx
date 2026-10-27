@@ -47,6 +47,7 @@ export function Header({ view, setView, pais, setPais, mesActual, userEmail, onL
             <button className={`togb ${view === 'prog' ? 'on' : ''}`} onClick={() => setView('prog')}>📈 Progreso</button>
             <button className={`togb ${view === 'interv' ? 'on' : ''}`} onClick={() => setView('interv')}>👥 Intervenidos</button>
             <button className={`togb ${view === 'growth' ? 'on' : ''}`} onClick={() => setView('growth')}>🌱 Growth</button>
+            <button className={`togb ${view === 'vivo' ? 'on' : ''}`} onClick={() => setView('vivo')}>● En vivo</button>
           </div>
           
           {/* Toggle país */}
