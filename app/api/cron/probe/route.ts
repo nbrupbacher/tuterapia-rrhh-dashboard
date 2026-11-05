@@ -24,6 +24,68 @@ export const maxDuration = 60;
  */
 const DIAS = 90;
 
+// ===== Alertas de rescate (reglas A y B del mockup de Talent) =====
+// Solo conteos, para validar las reglas antes de guardar alertas por
+// paciente. Definiciones acordadas con Talent el 2026-11-05:
+// - "Agendada" = cualquier sesión no cancelada con su terapeuta actual,
+//   realizada o no. No existe un estado "aprobada" en `sesiones`.
+// - El reloj de la regla A arranca en el registro (`login.creacion`), porque
+//   `pacientes.id_terapeuta` no tiene fecha. Con un paciente reasignado el
+//   reloj arranca antes de tiempo; se aceptó así.
+
+// Canceladas por cualquiera de los dos, como en lib/en-vivo-sync.ts: las que
+// no se borran de `sesiones` quedan con realizada = 0 y contarían como
+// agendadas.
+const CANCELADAS = `
+  SELECT idSesion FROM terapeutas_log
+   WHERE accion = 2 AND idSesion IS NOT NULL AND fecha >= UTC_TIMESTAMP() - INTERVAL 150 DAY
+  UNION
+  SELECT idSesion FROM pacientes_log
+   WHERE accion = 2 AND idSesion IS NOT NULL AND fecha >= UTC_TIMESTAMP() - INTERVAL 150 DAY`;
+
+// Regla A: registrado hace entre 48 h y 30 días, con terapeuta asignado, y
+// sin ninguna sesión no cancelada con ese terapeuta. Una sesión no puede ser
+// anterior al registro, así que alcanza con mirar los últimos 30 días.
+const REGLA_A = `
+  SELECT p.id_terapeuta AS tid, lt.paisDominio AS pais, lp.creacion
+    FROM pacientes p
+    JOIN login lp ON lp.id = p.id_login AND lp.tipo = 1
+    JOIN login lt ON lt.id = p.id_terapeuta AND lt.tipo = 2 AND lt.paisDominio IN ('AR', 'UY')
+    LEFT JOIN (
+      SELECT DISTINCT s.id_paciente, s.id_terapeuta
+        FROM sesiones s
+        LEFT JOIN (${CANCELADAS}) c ON c.idSesion = s.id
+       WHERE s.fecha >= UTC_TIMESTAMP() - INTERVAL 30 DAY AND c.idSesion IS NULL
+    ) a ON a.id_paciente = p.id_login AND a.id_terapeuta = p.id_terapeuta
+   WHERE lp.creacion >= UTC_TIMESTAMP() - INTERVAL 30 DAY
+     AND lp.creacion <  UTC_TIMESTAMP() - INTERVAL 48 HOUR
+     AND a.id_paciente IS NULL`;
+
+// Regla B: primera sesión realizada con su terapeuta actual hace entre 5 y 35
+// días, y ninguna sesión no cancelada con él después de esa. La primera se
+// busca en toda la historia del par, para no tomar como nuevo a alguien que
+// vuelve después de meses.
+const REGLA_B = `
+  SELECT pr.id_terapeuta AS tid, lt.paisDominio AS pais, pr.primera
+    FROM (
+      SELECT id_paciente, id_terapeuta, MIN(fecha) AS primera
+        FROM sesiones
+       WHERE realizada = 1
+       GROUP BY id_paciente, id_terapeuta
+      HAVING primera >= UTC_TIMESTAMP() - INTERVAL 35 DAY
+         AND primera <  UTC_TIMESTAMP() - INTERVAL 5 DAY
+    ) pr
+    JOIN pacientes p ON p.id_login = pr.id_paciente AND p.id_terapeuta = pr.id_terapeuta
+    JOIN login lt ON lt.id = pr.id_terapeuta AND lt.tipo = 2 AND lt.paisDominio IN ('AR', 'UY')
+    LEFT JOIN (
+      SELECT s.id_paciente, s.id_terapeuta, MAX(s.fecha) AS ultima
+        FROM sesiones s
+        LEFT JOIN (${CANCELADAS}) c ON c.idSesion = s.id
+       WHERE s.fecha >= UTC_TIMESTAMP() - INTERVAL 35 DAY AND c.idSesion IS NULL
+       GROUP BY s.id_paciente, s.id_terapeuta
+    ) u ON u.id_paciente = pr.id_paciente AND u.id_terapeuta = pr.id_terapeuta
+   WHERE u.ultima IS NULL OR u.ultima <= pr.primera`;
+
 const PROBES: Record<string, string> = {
   // ¿Qué valores toma realizada? ¿Hay sesiones a futuro (agenda)? ¿Las
   // canceladas se borran o quedan con otro valor?
@@ -143,6 +205,45 @@ const PROBES: Record<string, string> = {
       FROM rating
      GROUP BY rate, status
      ORDER BY rate, status`,
+
+  // ¿Cuántos caen hoy en cada regla, y cuánto hace? Si los números son
+  // razonables, se guardan las alertas por paciente.
+  // ?only=regla_a,regla_a_por_terapeuta,regla_b,regla_b_por_terapeuta
+  regla_a: `
+    SELECT pais,
+           CASE WHEN creacion >= UTC_TIMESTAMP() - INTERVAL 7 DAY THEN '1. 2-7 días'
+                WHEN creacion >= UTC_TIMESTAMP() - INTERVAL 14 DAY THEN '2. 7-14 días'
+                ELSE '3. 14-30 días' END AS desde_registro,
+           COUNT(*) AS pacientes,
+           COUNT(DISTINCT tid) AS terapeutas
+      FROM (${REGLA_A}) x
+     GROUP BY pais, desde_registro
+     ORDER BY pais, desde_registro`,
+
+  // Concentración: ¿son pocos terapeutas con muchos, o muchos con uno?
+  regla_a_por_terapeuta: `
+    SELECT tid, pais, COUNT(*) AS pacientes
+      FROM (${REGLA_A}) x
+     GROUP BY tid, pais
+     ORDER BY pacientes DESC
+     LIMIT 20`,
+
+  regla_b: `
+    SELECT pais,
+           CASE WHEN primera >= UTC_TIMESTAMP() - INTERVAL 14 DAY THEN '1. 5-14 días'
+                ELSE '2. 14-35 días' END AS desde_primera,
+           COUNT(*) AS pacientes,
+           COUNT(DISTINCT tid) AS terapeutas
+      FROM (${REGLA_B}) x
+     GROUP BY pais, desde_primera
+     ORDER BY pais, desde_primera`,
+
+  regla_b_por_terapeuta: `
+    SELECT tid, pais, COUNT(*) AS pacientes
+      FROM (${REGLA_B}) x
+     GROUP BY tid, pais
+     ORDER BY pacientes DESC
+     LIMIT 20`,
 };
 
 export async function GET(request: Request) {
