@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import type { PaisFilter, TherapistView } from '@/lib/types';
+import { AlertasVivo } from '@/components/AlertasVivo';
 
 /**
  * Solapa En vivo → Todos los psicólogos.
@@ -10,9 +11,9 @@ import type { PaisFilter, TherapistView } from '@/lib/types';
  * Lee solo de Supabase (`en_vivo_*`), que el cron diario llena desde MySQL.
  * Las definiciones de cada número están en `lib/en-vivo-sync.ts`.
  *
- * Alertas y Reseñas son las fases siguientes del mockup de Talent: se ven en
- * la barra de sub-pestañas para que se entienda dónde van, pero todavía no
- * tienen contenido.
+ * Alertas vive en components/AlertasVivo.tsx. Reseñas es la fase siguiente
+ * del mockup de Talent: se ve en la barra de sub-pestañas para que se
+ * entienda dónde va, pero todavía no tiene contenido.
  */
 
 type Diario = {
@@ -57,6 +58,7 @@ type Fila = {
 
 type Orden = 'ses' | 'prox7' | 'ult' | 'nombre';
 type Escala = 'dia' | 'semana';
+type Sub = 'alertas' | 'todos';
 
 // Estilos propios de la solapa, con las variables de globals.css. Viven acá
 // para que todo lo de En vivo esté en un solo archivo.
@@ -120,6 +122,8 @@ export function EnVivoView({
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Arranca en Alertas: es lo que el equipo trabaja todos los días.
+  const [sub, setSub] = useState<Sub>('alertas');
   const [busqueda, setBusqueda] = useState('');
   const [orden, setOrden] = useState<Orden>('ses');
   const [escala, setEscala] = useState<Escala>('dia');
@@ -275,20 +279,34 @@ export function EnVivoView({
   const pag = visibles.slice(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA);
   const dSes = delta(totales.ses, totales.sesAnt);
 
+  const barra = (
+    <div className="vv-top">
+      <div className="tabs" style={{ marginBottom: 0, borderBottom: 'none' }}>
+        <div className={`tab ${sub === 'alertas' ? 'on' : ''}`} onClick={() => setSub('alertas')}>Alertas</div>
+        <div className={`tab ${sub === 'todos' ? 'on' : ''}`} onClick={() => setSub('todos')}>Todos los psicólogos</div>
+        <div className="tab vv-off" title="Próxima fase">Reseñas</div>
+      </div>
+      <div className="vv-sync">
+        {sync ? `Datos al ${fechaHora(sync.corrida_en)}` : 'Sin sincronización todavía'}
+        <span style={{ color: 'var(--t3)' }}> · mes en curso: {nombreMes}, día {d} de {nDias}</span>
+      </div>
+    </div>
+  );
+
+  if (sub === 'alertas') {
+    return (
+      <>
+        <style>{ESTILOS}</style>
+        {barra}
+        <AlertasVivo pais={pais} therapists={therapists} onRowClick={onRowClick} ultimaCorrida={sync?.corrida_en ?? null} />
+      </>
+    );
+  }
+
   return (
     <>
       <style>{ESTILOS}</style>
-      <div className="vv-top">
-        <div className="tabs" style={{ marginBottom: 0, borderBottom: 'none' }}>
-          <div className="tab vv-off" title="Próxima fase">Alertas</div>
-          <div className="tab on">Todos los psicólogos</div>
-          <div className="tab vv-off" title="Próxima fase">Reseñas</div>
-        </div>
-        <div className="vv-sync">
-          {sync ? `Datos al ${fechaHora(sync.corrida_en)}` : 'Sin sincronización todavía'}
-          <span style={{ color: 'var(--t3)' }}> · mes en curso: {nombreMes}, día {d} de {nDias}</span>
-        </div>
-      </div>
+      {barra}
 
       <div className="ks" style={{ marginTop: 8 }}>
         <div className="k" style={{ cursor: 'default' }}>
