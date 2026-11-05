@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { withMysql } from '@/lib/mysql';
 import { isCronAuthorized } from '@/lib/cron-auth';
-import { calcularVentana, leerEnVivo } from '@/lib/en-vivo-sync';
+import { calcularVentana, diaLocal, leerEnVivo } from '@/lib/en-vivo-sync';
+import { guardarAlertas, leerAlertas } from '@/lib/en-vivo-alertas';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,6 +23,10 @@ export const maxDuration = 60;
  *
  * Cada corrida, buena o mala, deja una fila en `en_vivo_sync`: de ahí sale el
  * "Datos al" de la pantalla.
+ *
+ * Después, aparte, actualiza `alertas_vivo` (lib/en-vivo-alertas.ts). Va
+ * segundo y con su propio try: si las alertas fallan o tardan de más, los
+ * números de la solapa ya quedaron guardados.
  */
 export async function GET(request: Request) {
   if (!isCronAuthorized(request)) {
@@ -49,7 +54,24 @@ export async function GET(request: Request) {
     const ms = Date.now() - t0;
     await sb.from('en_vivo_sync').insert({ ok: true, filas_diario: diario.length, terapeutas: terapeutas.length, ms });
 
-    return NextResponse.json({ ok: true, ventana, filas_diario: diario.length, terapeutas: terapeutas.length, ms });
+    let alertas: number | string;
+    try {
+      const filas = await withMysql((conn) => leerAlertas(conn, diaLocal(new Date())));
+      alertas = await guardarAlertas(sb, filas);
+    } catch (e) {
+      alertas = e instanceof Error ? e.message : 'error desconocido';
+      console.error('[cron/en-vivo] alertas falló', e);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      ventana,
+      filas_diario: diario.length,
+      terapeutas: terapeutas.length,
+      ms,
+      alertas,
+      ms_total: Date.now() - t0,
+    });
   } catch (error) {
     const mensaje = error instanceof Error ? error.message : 'error desconocido';
     console.error('[cron/en-vivo] falló', error);
