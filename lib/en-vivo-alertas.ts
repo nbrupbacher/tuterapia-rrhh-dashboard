@@ -12,6 +12,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  *   entre 5 y 35 días y no tiene ninguna sesión no cancelada después de esa,
  *   ni pasada ni agendada. La primera se busca en toda la historia del par,
  *   para no tomar como nuevo a alguien que vuelve después de meses.
+ * - Regla C: tiene exactamente 4 sesiones realizadas con su terapeuta actual,
+ *   la 4ª fue hace entre 14 y 45 días, y no tiene ninguna sesión no cancelada
+ *   después. 14 y no 5 como la B: a esa altura muchos van cada 15 días.
  *
  * Mismas definiciones de cancelada que lib/en-vivo-sync.ts. Del paciente sale
  * solo `login.id`: el nombre se lee en vivo al abrir la bandeja, para no
@@ -67,8 +70,32 @@ const REGLA_B = `
     ) u ON u.id_paciente = pr.id_paciente AND u.id_terapeuta = pr.id_terapeuta
    WHERE u.ultima IS NULL OR u.ultima <= pr.primera`;
 
+// "Exactamente 4" hace que la 4ª sea la última realizada: con 5 o más ya
+// volvió. Las agendadas a futuro después de la 4ª las excluye el LEFT JOIN.
+const REGLA_C = `
+  SELECT r.id_terapeuta AS tid, r.id_paciente AS pid, r.cuarta AS ref
+    FROM (
+      SELECT id_paciente, id_terapeuta, COUNT(*) AS n, MAX(fecha) AS cuarta
+        FROM sesiones
+       WHERE realizada = 1
+       GROUP BY id_paciente, id_terapeuta
+      HAVING n = 4
+         AND cuarta >= UTC_TIMESTAMP() - INTERVAL 45 DAY
+         AND cuarta <  UTC_TIMESTAMP() - INTERVAL 14 DAY
+    ) r
+    JOIN pacientes p ON p.id_login = r.id_paciente AND p.id_terapeuta = r.id_terapeuta
+    JOIN login lt ON lt.id = r.id_terapeuta AND lt.tipo = 2 AND lt.paisDominio IN ('AR', 'UY')
+    LEFT JOIN (
+      SELECT s.id_paciente, s.id_terapeuta, MAX(s.fecha) AS ultima
+        FROM sesiones s
+        LEFT JOIN (${CANCELADAS}) c ON c.idSesion = s.id
+       WHERE s.fecha >= UTC_TIMESTAMP() - INTERVAL 45 DAY AND c.idSesion IS NULL
+       GROUP BY s.id_paciente, s.id_terapeuta
+    ) u ON u.id_paciente = r.id_paciente AND u.id_terapeuta = r.id_terapeuta
+   WHERE u.ultima IS NULL OR u.ultima <= r.cuarta`;
+
 export type FilaAlerta = {
-  regla: 'A' | 'B';
+  regla: 'A' | 'B' | 'C';
   therapist_id: string;
   paciente_id: number;
   fecha_referencia: string;
@@ -82,7 +109,7 @@ export async function leerAlertas(conn: Connection, hoy: string): Promise<FilaAl
   // Por clave: si `pacientes` tuviera dos filas del mismo paciente, el upsert
   // fallaría al tocar la misma fila dos veces en una tanda.
   const filas = new Map<string, FilaAlerta>();
-  for (const [regla, sql] of [['A', REGLA_A], ['B', REGLA_B]] as const) {
+  for (const [regla, sql] of [['A', REGLA_A], ['B', REGLA_B], ['C', REGLA_C]] as const) {
     const [rows] = await conn.query<RowDataPacket[]>(sql);
     for (const r of rows) {
       filas.set(`${regla}|${r.tid}|${r.pid}|${r.ref}`, {
@@ -97,14 +124,29 @@ export async function leerAlertas(conn: Connection, hoy: string): Promise<FilaAl
   return [...filas.values()];
 }
 
-/** Upsert en tandas; devuelve cuántas filas mandó. */
-export async function guardarAlertas(sb: SupabaseClient, filas: FilaAlerta[]): Promise<number> {
+/**
+ * Upsert en tandas, separado por regla: si una regla falla (por ejemplo la C
+ * antes de que la base la acepte), las otras se guardan igual. Devuelve
+ * cuántas filas guardó por regla, o el error de esa regla.
+ */
+export async function guardarAlertas(
+  sb: SupabaseClient,
+  filas: FilaAlerta[],
+): Promise<Record<string, number | string>> {
   const TANDA = 500;
-  for (let i = 0; i < filas.length; i += TANDA) {
-    const { error } = await sb
-      .from('alertas_vivo')
-      .upsert(filas.slice(i, i + TANDA), { onConflict: 'regla,therapist_id,paciente_id,fecha_referencia' });
-    if (error) throw new Error(`Supabase alertas: ${error.message}`);
+  const out: Record<string, number | string> = {};
+  for (const regla of ['A', 'B', 'C'] as const) {
+    const propias = filas.filter((f) => f.regla === regla);
+    out[regla] = propias.length;
+    for (let i = 0; i < propias.length; i += TANDA) {
+      const { error } = await sb
+        .from('alertas_vivo')
+        .upsert(propias.slice(i, i + TANDA), { onConflict: 'regla,therapist_id,paciente_id,fecha_referencia' });
+      if (error) {
+        out[regla] = `Supabase: ${error.message}`;
+        break;
+      }
+    }
   }
-  return filas.length;
+  return out;
 }
