@@ -268,7 +268,7 @@ export function AlertasVivo({
   }
 
   // Planilla para CX con lo que se ve (respeta filtros y buscador). Desde
-  // Pendientes, ofrece marcar esas alertas como derivadas: así la descarga del
+  // Pendientes, las marca como derivadas sin preguntar: así la descarga del
   // día siguiente trae solo las nuevas, y queda registro de qué se le pasó a CX.
   async function descargarParaCx() {
     const filasCsv = visibles;
@@ -294,7 +294,7 @@ export function AlertasVivo({
     URL.revokeObjectURL(url);
 
     if (vista !== 'pendientes' || filasCsv.length === 0) return;
-    if (!window.confirm(`¿Marcar estas ${filasCsv.length} alertas como "Derivadas a CX"?`)) return;
+    // Descargar es derivar: Talent no quiere un click más por caso.
     setGuardando('lote');
     setError(null);
     const cambios = { estado: 'derivada_cx' as Estado, estado_por: email, estado_at: new Date().toISOString() };
