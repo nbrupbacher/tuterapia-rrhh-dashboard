@@ -49,6 +49,7 @@ function onEdit(e) {
 }
 
 function activarAutomatico() {
+  pedirPermisos();
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'sincronizar') ScriptApp.deleteTrigger(t);
   });
@@ -57,8 +58,16 @@ function activarAutomatico() {
 }
 
 function sincronizarDesdeMenu() {
+  pedirPermisos();
   var res = sincronizar();
   SpreadsheetApp.getActive().toast(res, 'Rescate CX', 8);
+}
+
+// Si al aceptar los permisos de Google quedó alguno sin tildar (Google deja
+// elegir uno por uno), esto vuelve a mostrar el cartel. Sin el de "servicio
+// externo" la planilla no puede hablar con el dashboard.
+function pedirPermisos() {
+  ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
 }
 
 function sincronizar() {
@@ -76,7 +85,12 @@ function sincronizar() {
     SpreadsheetApp.getActive().getSheetByName(HOJA).getRange('P1').setValue('Última sincronización: ' + ahora());
     return msg;
   } catch (err) {
-    return 'No se pudo sincronizar: ' + err.message;
+    // Queda escrito en la planilla: la sincronización de cada hora no muestra
+    // carteles, y así CX ve que algo falló.
+    var error = 'No se pudo sincronizar: ' + err.message;
+    var h = SpreadsheetApp.getActive().getSheetByName(HOJA);
+    if (h) h.getRange('P1').setValue(ahora() + ' · ' + error);
+    return error;
   } finally {
     lock.releaseLock();
   }
