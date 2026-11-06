@@ -278,15 +278,18 @@ export function AlertasVivo({
     const hace7 = diaLocal(new Date(Date.now() - 7 * 86_400_000));
     const t = { A: 0, B: 0, C: 0, pendientes: 0, derivadas: 0, cerradas: 0, solas7: 0 };
     for (const f of enPais) {
-      if (f.vista === 'pendientes') {
-        t[f.regla]++;
-        t.pendientes++;
-      } else if (f.vista === 'derivadas') t.derivadas++;
+      // Las tarjetas A/B/C muestran siempre el total de cada regla; los
+      // contadores de las vistas, solo la regla elegida, para que coincidan
+      // con la lista que se ve.
+      if (f.vista === 'pendientes') t[f.regla]++;
+      if (regla !== 'T' && f.regla !== regla) continue;
+      if (f.vista === 'pendientes') t.pendientes++;
+      else if (f.vista === 'derivadas') t.derivadas++;
       else t.cerradas++;
       if (!f.vigente && !f.vencida && f.vista_ultima >= hace7) t.solas7++;
     }
     return t;
-  }, [enPais]);
+  }, [enPais, regla]);
 
   // Qué pasó con lo que se le pasó a CX, sin pedirle nada a CX: si agendó o
   // venció lo detecta el cron. Lo descartado no cuenta.
@@ -573,6 +576,11 @@ export function AlertasVivo({
             // pasado a CX no hay forma de saberlo, así que va a Pendientes.
             if (await cambiar(caso, 'abierta', '')) setCaso(null);
           }}
+          onVolverAPendiente={async () => {
+            // Para deshacer una derivación por error (por ejemplo, una
+            // descarga de prueba) sin tener que tocar la base a mano.
+            if (await cambiar(caso, 'abierta')) setCaso(null);
+          }}
         />
       )}
     </>
@@ -589,6 +597,7 @@ function Caso({
   onCerrar,
   onDescartar,
   onReabrir,
+  onVolverAPendiente,
 }: {
   f: Fila;
   nombre: string;
@@ -598,6 +607,7 @@ function Caso({
   onCerrar: () => void;
   onDescartar: (motivo: string) => void;
   onReabrir: () => void;
+  onVolverAPendiente: () => void;
 }) {
   const [texto, setTexto] = useState('');
   const [descartando, setDescartando] = useState(false);
@@ -644,9 +654,16 @@ function Caso({
                 <button className="btn" disabled={guardando} onClick={onReabrir}>Reabrir</button>
               </>
             ) : !descartando ? (
-              <button className="btn" onClick={() => setDescartando(true)} title="Solo para excepciones: el caso deja de contar en los resultados">
-                Descartar caso…
-              </button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {f.estado === 'derivada_cx' && f.vigente && (
+                  <button className="btn" disabled={guardando} onClick={onVolverAPendiente} title="Deshace la derivación a CX">
+                    Volver a pendiente
+                  </button>
+                )}
+                <button className="btn" onClick={() => setDescartando(true)} title="Solo para excepciones: el caso deja de contar en los resultados">
+                  Descartar caso…
+                </button>
+              </div>
             ) : (
               <>
                 <div className="mst">Descartar caso</div>
