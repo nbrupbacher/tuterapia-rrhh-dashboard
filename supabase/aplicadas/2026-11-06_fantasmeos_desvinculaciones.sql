@@ -1,9 +1,10 @@
 -- ============================================================
--- PROPUESTA · NO APLICADA
+-- APLICADA el 2026-11-06 (migración "fantasmeos_desvinculaciones"), con OK de Talent.
 -- Matrix en vivo, fase 0: fantasmeos y desvinculaciones.
 -- Solo crea tablas nuevas; no toca ninguna existente ni sus datos.
 -- La puede aprobar Talent (acuerdo con Nico del 2026-11-05: tablas nuevas
--- que solo agregan). No hay base de staging: se ve en producción al aplicarla.
+-- que solo agregan). Los datos iniciales se cargaron de la hoja Monitorear y del
+-- form de desvinculación (cargado_por = "importado de ...").
 -- ============================================================
 
 -- ===== FANTASMEOS =====
