@@ -11,9 +11,12 @@ import type { PaisFilter, TherapistView } from '@/lib/types';
  * `alertas_vivo`. Acá el equipo las deriva a CX o las cierra.
  *
  * Una alerta está "vigente" si la vio la última corrida del cron. Si dejó de
- * verla, el paciente agendó: se muestra como "Agendó" en Cerradas, sin que
- * nadie la toque. Así se distingue lo que resolvió el equipo de lo que se
- * resolvió solo.
+ * verla, el paciente agendó o pasó la ventana de la regla: va a Cerradas como
+ * "Agendó" o "Venció sin agendar", sin que nadie la toque. Así se distingue lo
+ * que resolvió el equipo de lo que se resolvió solo.
+ *
+ * A CX se le pasa una planilla (CX tiene su propia matrix, no conectada con
+ * esta): "Descargar para CX" baja lo que se ve y lo marca como derivado.
  *
  * El nombre del paciente no está en Supabase: se pide a /api/en-vivo/pacientes,
  * que lo lee de la plataforma en el momento.
@@ -22,6 +25,7 @@ import type { PaisFilter, TherapistView } from '@/lib/types';
 type Estado = 'abierta' | 'derivada_cx' | 'resuelta' | 'descartada';
 type Vista = 'pendientes' | 'derivadas' | 'cerradas';
 type Regla = 'T' | 'A' | 'B';
+type OrdenDias = 'desc' | 'asc';
 
 type Alerta = {
   id: string;
@@ -39,6 +43,8 @@ type Alerta = {
 
 type Fila = Alerta & {
   vigente: boolean;
+  /** Dejó de aparecer porque pasó la ventana de la regla, no porque agendó. */
+  vencida: boolean;
   vista: Vista;
   psicologo: string;
   pais: string;
@@ -51,6 +57,11 @@ const LOCAL_OFFSET_MS = 3 * 3_600_000;
 // Las cerradas se miran hasta dos meses para atrás: alcanza para ver qué
 // pasó con lo derivado sin cargar la historia entera.
 const DIAS_HISTORIA = 60;
+
+// Hasta cuántos días mira cada regla del cron (lib/en-vivo-alertas.ts). Una
+// alerta que deja de aparecer cerca de ese tope salió por edad: sin esto se
+// mostraría como "Agendó" y inflaría los rescates.
+const VENTANA_DIAS: Record<'A' | 'B', number> = { A: 30, B: 35 };
 
 const TEXTO_REGLA: Record<'A' | 'B', string> = {
   A: 'Se registró y no agendó',
@@ -104,6 +115,8 @@ export function AlertasVivo({
   const [regla, setRegla] = useState<Regla>('T');
   const [busqueda, setBusqueda] = useState('');
   const [pagina, setPagina] = useState(0);
+  // null = orden por defecto de cada vista; se cambia tocando "Hace".
+  const [ordenDias, setOrdenDias] = useState<OrdenDias | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -163,6 +176,8 @@ export function AlertasVivo({
     return alertas.map((a) => {
       const mx = matrixPor.get(a.therapist_id) ?? null;
       const vigente = !diaCorrida || a.vista_ultima >= diaCorrida;
+      const edadAlUltimoVisto = (Date.parse(a.vista_ultima) - Date.parse(a.fecha_referencia)) / 86_400_000;
+      const vencida = !vigente && edadAlUltimoVisto >= VENTANA_DIAS[a.regla] - 2;
       const v: Vista =
         !vigente || a.estado === 'resuelta' || a.estado === 'descartada'
           ? 'cerradas'
@@ -172,6 +187,7 @@ export function AlertasVivo({
       return {
         ...a,
         vigente,
+        vencida,
         vista: v,
         psicologo: mx?.nombre ?? `Terapeuta #${a.therapist_id}`,
         pais: mx?.pais ?? '—',
@@ -193,14 +209,15 @@ export function AlertasVivo({
         const pac = (nombres[String(f.paciente_id)] ?? '').toLowerCase();
         return f.psicologo.toLowerCase().includes(q) || pac.includes(q) || String(f.paciente_id).includes(q);
       });
-    // Pendientes: lo más viejo primero, es lo que más urge. Cerradas: lo
-    // último que pasó primero.
+    if (ordenDias) return out.sort((a, b) => (ordenDias === 'asc' ? a.dias - b.dias : b.dias - a.dias));
+    // Por defecto. Pendientes: lo más viejo primero, es lo que más urge.
+    // Cerradas: lo último que pasó primero.
     return vista === 'cerradas'
       ? out.sort((a, b) => (b.estado_at ?? b.vista_ultima).localeCompare(a.estado_at ?? a.vista_ultima))
       : out.sort((a, b) => b.dias - a.dias);
-  }, [enPais, vista, regla, busqueda, nombres]);
+  }, [enPais, vista, regla, busqueda, nombres, ordenDias]);
 
-  useEffect(() => setPagina(0), [vista, regla, busqueda, pais]);
+  useEffect(() => setPagina(0), [vista, regla, busqueda, pais, ordenDias]);
 
   const totales = useMemo(() => {
     const hace7 = diaLocal(new Date(Date.now() - 7 * 86_400_000));
@@ -211,7 +228,7 @@ export function AlertasVivo({
         else t.b++;
       } else if (f.vista === 'derivadas') t.derivadas++;
       else t.cerradas++;
-      if (!f.vigente && f.vista_ultima >= hace7) t.solas7++;
+      if (!f.vigente && !f.vencida && f.vista_ultima >= hace7) t.solas7++;
     }
     return t;
   }, [enPais]);
@@ -248,6 +265,51 @@ export function AlertasVivo({
     } catch {
       setError('No se pudo copiar al portapapeles');
     }
+  }
+
+  // Planilla para CX con lo que se ve (respeta filtros y buscador). Desde
+  // Pendientes, las marca como derivadas sin preguntar: así la descarga del
+  // día siguiente trae solo las nuevas, y queda registro de qué se le pasó a CX.
+  async function descargarParaCx() {
+    const filasCsv = visibles;
+    const encabezado = ['Paciente', 'N° paciente', 'Psicólogo/a', 'País', 'Regla', 'Motivo', 'Días', 'Fecha (registro o 1ª sesión)', 'Detectada'];
+    const lineas = filasCsv.map((f) => [
+      nombrePaciente(f),
+      String(f.paciente_id),
+      f.psicologo,
+      f.pais,
+      f.regla,
+      motivo(f),
+      String(f.dias),
+      ddmm(diaLocal(new Date(f.fecha_referencia))),
+      ddmm(f.detectada_el),
+    ]);
+    // Punto y coma y BOM: así Excel en español lo abre en columnas y con tildes.
+    const csv = String.fromCharCode(0xfeff) + [encabezado, ...lineas].map((l) => l.map(celdaCsv).join(';')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `alertas-cx-${diaLocal(new Date())}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    if (vista !== 'pendientes' || filasCsv.length === 0) return;
+    // Descargar es derivar: Talent no quiere un click más por caso.
+    setGuardando('lote');
+    setError(null);
+    const cambios = { estado: 'derivada_cx' as Estado, estado_por: email, estado_at: new Date().toISOString() };
+    const ids = filasCsv.map((f) => f.id);
+    for (let i = 0; i < ids.length; i += 200) {
+      const tanda = ids.slice(i, i + 200);
+      const { error: e } = await getSupabase().from('alertas_vivo').update(cambios).in('id', tanda);
+      if (e) {
+        setError(`No se pudieron marcar como derivadas: ${e.message}`);
+        break;
+      }
+      const hechas = new Set(tanda);
+      setAlertas((prev) => prev.map((x) => (hechas.has(x.id) ? { ...x, ...cambios } : x)));
+    }
+    setGuardando(null);
   }
 
   if (cargando) return <div className="empty-wrap">Cargando alertas…</div>;
@@ -304,8 +366,13 @@ export function AlertasVivo({
           </svg>
           <input className="si" placeholder="Buscar paciente o psicólogo..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
         </div>
+        {vista !== 'cerradas' && visibles.length > 0 && (
+          <button className="btn va-cx" disabled={guardando === 'lote'} onClick={descargarParaCx} title="Baja una planilla con las alertas que se ven, para pasarle a CX">
+            {guardando === 'lote' ? 'Marcando…' : `Descargar para CX (${visibles.length})`}
+          </button>
+        )}
         {vista === 'derivadas' && visibles.length > 0 && (
-          <button className="btn va-cx" onClick={copiarParaCx}>{copiado ? 'Copiado ✓' : 'Copiar lista para CX'}</button>
+          <button className="btn" onClick={copiarParaCx}>{copiado ? 'Copiado ✓' : 'Copiar lista'}</button>
         )}
         <span className="cnt">{visibles.length} alertas</span>
       </div>
@@ -330,7 +397,13 @@ export function AlertasVivo({
                 <th className="c-va-pac">Paciente</th>
                 <th className="c-va-ps">Psicólogo/a</th>
                 <th className="c-p">País</th>
-                <th className="c-va-d" title="Días desde el registro (A) o desde la 1ª sesión (B)">Hace</th>
+                <th
+                  className={`c-va-d ${ordenDias ? 'ths' : ''}`}
+                  title="Días desde el registro (A) o desde la 1ª sesión (B). Tocá para ordenar."
+                  onClick={() => setOrdenDias((o) => (o === 'desc' ? 'asc' : 'desc'))}
+                >
+                  Hace {ordenDias === 'asc' ? '↑' : ordenDias === 'desc' ? '↓' : '↕'}
+                </th>
                 <th className="c-va-det" title="Primer día en que apareció la alerta">Detectada</th>
                 <th className="c-va-est">Estado</th>
                 <th className="c-va-acc">Acciones</th>
@@ -362,7 +435,6 @@ export function AlertasVivo({
                     <div className="va-acc">
                       {f.vista === 'pendientes' && (
                         <>
-                          <button className="btn va-cx" disabled={guardando === f.id} onClick={() => cambiar(f, 'derivada_cx')}>Derivar a CX</button>
                           <button className="btn" disabled={guardando === f.id} onClick={() => cambiar(f, 'resuelta')}>Resuelto</button>
                           <button className="btn" disabled={guardando === f.id} onClick={() => cambiar(f, 'descartada')} title="No hace falta rescatarlo (ej.: lo habló directo con el psicólogo)">Descartar</button>
                         </>
@@ -404,7 +476,10 @@ function EstadoBadge({ f }: { f: Fila }) {
   const pie = quien && cuando ? `${quien} · ${cuando}` : null;
   let txt: string;
   let cls: string;
-  if (!f.vigente) {
+  if (f.vencida) {
+    txt = 'Venció sin agendar';
+    cls = 'ts ts-d';
+  } else if (!f.vigente) {
     txt = 'Agendó';
     cls = 'ts ts-u';
   } else if (f.estado === 'derivada_cx') {
@@ -426,4 +501,9 @@ function EstadoBadge({ f }: { f: Fila }) {
       {pie && <div className="va-sub">{pie}</div>}
     </>
   );
+}
+
+/** Celda de CSV: entre comillas si trae separador, comillas o salto de línea. */
+function celdaCsv(v: string): string {
+  return /[;"\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
