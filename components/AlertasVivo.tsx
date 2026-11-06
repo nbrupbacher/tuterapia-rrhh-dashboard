@@ -285,7 +285,7 @@ export function AlertasVivo({
       ddmm(f.detectada_el),
     ]);
     // Punto y coma y BOM: así Excel en español lo abre en columnas y con tildes.
-    const csv = '﻿' + [encabezado, ...lineas].map((l) => l.map(celdaCsv).join(';')).join('\r\n');
+    const csv = String.fromCharCode(0xfeff) + [encabezado, ...lineas].map((l) => l.map(celdaCsv).join(';')).join('\r\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
