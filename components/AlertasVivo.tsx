@@ -31,7 +31,7 @@ type Estado = 'abierta' | 'derivada_cx' | 'resuelta' | 'descartada';
 type Vista = 'pendientes' | 'derivadas' | 'cerradas';
 type CodRegla = 'A' | 'B' | 'C';
 type Regla = 'T' | CodRegla;
-type OrdenDias = 'desc' | 'asc';
+type Orden = { col: 'dias' | 'psicologo'; dir: 'asc' | 'desc' };
 
 type Alerta = {
   id: string;
@@ -90,13 +90,16 @@ const DESDE_REGLA: Record<CodRegla, string> = {
 
 // Las opciones de "Respuesta CX", en el orden en que van en la planilla.
 const RESPUESTAS_CX: Record<string, string> = {
-  no_respondio: 'No respondió',
+  no_responde: 'No responde',
+  pide_derivacion: 'Pide derivación',
   va_a_agendar: 'Va a agendar',
-  cambio_psicologo: 'Pide cambio de psicólogo',
-  no_sigue_precio: 'No sigue por precio',
-  no_sigue_otro: 'No sigue por tiempo u otro motivo',
-  contacto_erroneo: 'Contacto erróneo',
+  motivos_economicos: 'Motivos económicos',
+  siguio_por_fuera: 'Siguió por fuera',
 };
+
+// "Siguió por fuera" es señal de que el psicólogo/a se llevó al paciente de la
+// plataforma: se resalta para que Talent lo mire como posible desvinculación.
+const RESPUESTA_ALERTA = 'siguio_por_fuera';
 
 const ESTILOS = `
 .va-leg { font-size:11px; color:var(--t2); margin:6px 0 8px; display:flex; gap:14px; flex-wrap:wrap; }
@@ -151,8 +154,12 @@ export function AlertasVivo({
   const [regla, setRegla] = useState<Regla>('T');
   const [busqueda, setBusqueda] = useState('');
   const [pagina, setPagina] = useState(0);
-  // null = orden por defecto de cada vista; se cambia tocando "Hace".
-  const [ordenDias, setOrdenDias] = useState<OrdenDias | null>(null);
+  // null = orden por defecto de cada vista; se cambia tocando "Hace" o
+  // "Psicólogo/a" (por nombre, para ver cuántos casos se juntan en uno).
+  const [orden, setOrden] = useState<Orden | null>(null);
+  const ordenarPor = (col: Orden['col']) =>
+    setOrden((o) => ({ col, dir: o?.col === col ? (o.dir === 'asc' ? 'desc' : 'asc') : col === 'dias' ? 'desc' : 'asc' }));
+  const flecha = (col: Orden['col']) => (!orden || orden.col !== col ? '↕' : orden.dir === 'asc' ? '↑' : '↓');
 
   useEffect(() => {
     let vivo = true;
@@ -264,15 +271,20 @@ export function AlertasVivo({
         const pac = (nombres[String(f.paciente_id)] ?? '').toLowerCase();
         return f.psicologo.toLowerCase().includes(q) || pac.includes(q) || String(f.paciente_id).includes(q);
       });
-    if (ordenDias) return out.sort((a, b) => (ordenDias === 'asc' ? a.dias - b.dias : b.dias - a.dias));
+    if (orden) {
+      const s = orden.dir === 'asc' ? 1 : -1;
+      return orden.col === 'dias'
+        ? out.sort((a, b) => s * (a.dias - b.dias))
+        : out.sort((a, b) => s * a.psicologo.localeCompare(b.psicologo, 'es', { sensitivity: 'base' }) || b.dias - a.dias);
+    }
     // Por defecto. Pendientes: lo más viejo primero, es lo que más urge.
     // Cerradas: lo último que pasó primero.
     return vista === 'cerradas'
       ? out.sort((a, b) => (b.estado_at ?? b.vista_ultima).localeCompare(a.estado_at ?? a.vista_ultima))
       : out.sort((a, b) => b.dias - a.dias);
-  }, [enPais, vista, regla, busqueda, nombres, ordenDias]);
+  }, [enPais, vista, regla, busqueda, nombres, orden]);
 
-  useEffect(() => setPagina(0), [vista, regla, busqueda, pais, ordenDias]);
+  useEffect(() => setPagina(0), [vista, regla, busqueda, pais, orden]);
 
   const totales = useMemo(() => {
     const hace7 = diaLocal(new Date(Date.now() - 7 * 86_400_000));
@@ -498,14 +510,21 @@ export function AlertasVivo({
               <tr>
                 <th className="c-va-r">Regla</th>
                 <th className="c-va-pac" title="Tocá el nombre para ver el caso">Paciente</th>
-                <th className="c-va-ps">Psicólogo/a</th>
+                <th
+                  className={`c-va-ps ${orden?.col === 'psicologo' ? 'ths' : ''}`}
+                  title="Tocá para ordenar por nombre y ver cuántos casos tiene cada psicólogo/a"
+                  onClick={() => ordenarPor('psicologo')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  Psicólogo/a {flecha('psicologo')}
+                </th>
                 <th className="c-p">País</th>
                 <th
-                  className={`c-va-d ${ordenDias ? 'ths' : ''}`}
+                  className={`c-va-d ${orden?.col === 'dias' ? 'ths' : ''}`}
                   title="Días desde el registro (A), la 1ª sesión (B) o la 4ª sesión (C). Tocá para ordenar."
-                  onClick={() => setOrdenDias((o) => (o === 'desc' ? 'asc' : 'desc'))}
+                  onClick={() => ordenarPor('dias')}
                 >
-                  Hace {ordenDias === 'asc' ? '↑' : ordenDias === 'desc' ? '↓' : '↕'}
+                  Hace {flecha('dias')}
                 </th>
                 <th className="c-va-det" title="Primer día en que apareció la alerta">Detectada</th>
                 <th className="c-va-est">Estado</th>
@@ -540,7 +559,11 @@ export function AlertasVivo({
                     <td className="c-va-det tm">{ddmm(f.detectada_el)}</td>
                     <td className="c-va-est">
                       <EstadoBadge f={f} />
-                      {rcx && <div className="va-sub">CX: {RESPUESTAS_CX[rcx.respuesta] ?? rcx.respuesta}</div>}
+                      {rcx && (
+                        <div className="va-sub" style={rcx.respuesta === RESPUESTA_ALERTA ? { color: 'var(--r)', fontWeight: 600 } : undefined}>
+                          CX: {RESPUESTAS_CX[rcx.respuesta] ?? rcx.respuesta}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -639,7 +662,11 @@ function Caso({
             ) : (
               respuestas.map((r) => (
                 <div key={r.fecha_reporte} style={{ fontSize: 12, marginBottom: 4 }}>
-                  <span className="tm">{ddmm(r.fecha_reporte)}</span> · {RESPUESTAS_CX[r.respuesta] ?? r.respuesta}
+                  <span className="tm">{ddmm(r.fecha_reporte)}</span> ·{' '}
+                  <span style={r.respuesta === RESPUESTA_ALERTA ? { color: 'var(--r)', fontWeight: 600 } : undefined}>
+                    {RESPUESTAS_CX[r.respuesta] ?? r.respuesta}
+                    {r.respuesta === RESPUESTA_ALERTA && ' · posible desvinculación'}
+                  </span>
                   {r.comentario && <div className="va-sub">{r.comentario}</div>}
                 </div>
               ))
