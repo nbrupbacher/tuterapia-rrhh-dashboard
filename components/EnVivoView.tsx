@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import type { PaisFilter, TherapistView } from '@/lib/types';
 import { AlertasVivo } from '@/components/AlertasVivo';
+import { FantasmeosVivo } from '@/components/FantasmeosVivo';
 
 /**
  * Solapa En vivo → Todos los psicólogos.
@@ -11,7 +12,8 @@ import { AlertasVivo } from '@/components/AlertasVivo';
  * Lee solo de Supabase (`en_vivo_*`), que el cron diario llena desde MySQL.
  * Las definiciones de cada número están en `lib/en-vivo-sync.ts`.
  *
- * Alertas vive en components/AlertasVivo.tsx. Reseñas es la fase siguiente
+ * Alertas vive en components/AlertasVivo.tsx; Fantasmeos y salidas, en
+ * components/FantasmeosVivo.tsx. Reseñas es la fase siguiente
  * del mockup de Talent: se ve en la barra de sub-pestañas para que se
  * entienda dónde va, pero todavía no tiene contenido.
  */
@@ -58,7 +60,7 @@ type Fila = {
 
 type Orden = 'ses' | 'prox7' | 'ult' | 'nombre';
 type Escala = 'dia' | 'semana';
-type Sub = 'alertas' | 'todos';
+type Sub = 'alertas' | 'todos' | 'fantasmeos';
 
 // Estilos propios de la solapa, con las variables de globals.css. Viven acá
 // para que todo lo de En vivo esté en un solo archivo.
@@ -284,6 +286,7 @@ export function EnVivoView({
       <div className="tabs" style={{ marginBottom: 0, borderBottom: 'none' }}>
         <div className={`tab ${sub === 'alertas' ? 'on' : ''}`} onClick={() => setSub('alertas')}>Alertas</div>
         <div className={`tab ${sub === 'todos' ? 'on' : ''}`} onClick={() => setSub('todos')}>Todos los psicólogos</div>
+        <div className={`tab ${sub === 'fantasmeos' ? 'on' : ''}`} onClick={() => setSub('fantasmeos')}>Fantasmeos y salidas</div>
         <div className="tab vv-off" title="Próxima fase">Reseñas</div>
       </div>
       <div className="vv-sync">
@@ -292,6 +295,16 @@ export function EnVivoView({
       </div>
     </div>
   );
+
+  if (sub === 'fantasmeos') {
+    return (
+      <>
+        <style>{ESTILOS}</style>
+        {barra}
+        <FantasmeosVivo pais={pais} therapists={therapists} onRowClick={onRowClick} />
+      </>
+    );
+  }
 
   if (sub === 'alertas') {
     return (
