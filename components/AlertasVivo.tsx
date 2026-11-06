@@ -15,9 +15,11 @@ import type { PaisFilter, TherapistView } from '@/lib/types';
  * "Agendó" o "Venció sin agendar", sin que nadie la toque. Por eso no hay
  * botón "Resuelto": lo que importa (si agendó) se detecta solo.
  *
- * A CX se le pasa una planilla (CX tiene su propia matrix, no conectada con
- * esta): "Descargar para CX" baja lo que se ve y lo marca como derivado. CX
- * la devuelve con "Respuesta CX" completa y se carga en `respuestas_cx`.
+ * A CX se le pasa por la planilla de Google "Rescate CX" (CX tiene su propia
+ * matrix, no conectada con esta): "Derivar a CX" marca lo que se ve como
+ * derivado, y la planilla lo trae sola cada hora (app/api/cx/planilla). CX
+ * completa la respuesta ahí y vuelve sola a `respuestas_cx`. Antes se bajaba
+ * un CSV y la respuesta se cargaba a mano; el CSV queda como respaldo.
  *
  * Descartar es la excepción (por ejemplo, un paciente con problemas graves):
  * se hace desde el caso, con motivo obligatorio, y no cuenta en los
@@ -100,6 +102,9 @@ const RESPUESTAS_CX: Record<string, string> = {
 // "Siguió por fuera" es señal de que el psicólogo/a se llevó al paciente de la
 // plataforma: se resalta para que Talent lo mire como posible desvinculación.
 const RESPUESTA_ALERTA = 'siguio_por_fuera';
+
+// Planilla compartida con CX. Se llena sola desde app/api/cx/planilla.
+const PLANILLA_CX_URL = 'https://docs.google.com/spreadsheets/d/1dY8PhFHrF2kEO2oaD_W3-tJ-QCnDM58-qrMndUPLTK8/edit';
 
 const ESTILOS = `
 .va-leg { font-size:11px; color:var(--t2); margin:6px 0 8px; display:flex; gap:14px; flex-wrap:wrap; }
@@ -358,11 +363,9 @@ export function AlertasVivo({
     }
   }
 
-  // Planilla para CX con lo que se ve (respeta filtros y buscador). Desde
-  // Pendientes, las marca como derivadas sin preguntar: así la descarga del
-  // día siguiente trae solo las nuevas, y queda registro de qué se le pasó a CX.
-  // Las dos últimas columnas van vacías: las completa CX y la planilla vuelve.
-  async function descargarParaCx() {
+  // CSV con lo que se ve (respeta filtros y buscador). Quedó como respaldo de
+  // la planilla de Google: no marca nada.
+  function descargarCsv() {
     const filasCsv = visibles;
     const encabezado = [
       'Paciente', 'N° paciente', 'Psicólogo/a', 'País', 'Regla', 'Motivo', 'Días',
@@ -391,9 +394,17 @@ export function AlertasVivo({
     a.download = `alertas-cx-${diaLocal(new Date())}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
 
+  // Marca lo que se ve en Pendientes como derivado a CX, todo junto (Talent no
+  // quiere un click por caso). La planilla "Rescate CX" lo trae en la próxima
+  // sincronización. Se confirma porque sin descarga de por medio un click de
+  // más derivaba cientos sin que se note.
+  async function derivarACx() {
+    const filasCsv = visibles;
     if (vista !== 'pendientes' || filasCsv.length === 0) return;
-    // Descargar es derivar: Talent no quiere un click más por caso.
+    const n = filasCsv.length;
+    if (!window.confirm(`¿Derivar ${n} alerta${n === 1 ? '' : 's'} a CX? Van a aparecer en la planilla "Rescate CX" en la próxima sincronización (como mucho en una hora).`)) return;
     setGuardando('lote');
     setError(null);
     const cambios = { estado: 'derivada_cx' as Estado, estado_por: email, estado_at: new Date().toISOString() };
@@ -481,13 +492,21 @@ export function AlertasVivo({
           </svg>
           <input className="si" placeholder="Buscar paciente o psicólogo..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
         </div>
-        {vista !== 'cerradas' && visibles.length > 0 && (
-          <button className="btn va-cx" disabled={guardando === 'lote'} onClick={descargarParaCx} title="Baja una planilla con las alertas que se ven, para pasarle a CX">
-            {guardando === 'lote' ? 'Marcando…' : `Descargar para CX (${visibles.length})`}
+        {vista === 'pendientes' && visibles.length > 0 && (
+          <button className="btn va-cx" disabled={guardando === 'lote'} onClick={derivarACx} title="Marca las alertas que se ven como derivadas: aparecen solas en la planilla Rescate CX">
+            {guardando === 'lote' ? 'Marcando…' : `Derivar a CX (${visibles.length})`}
           </button>
         )}
+        {vista !== 'cerradas' && (
+          <a className="btn" style={{ textDecoration: 'none' }} href={PLANILLA_CX_URL} target="_blank" rel="noopener noreferrer" title="Planilla compartida con CX: se llena sola y las respuestas vuelven solas">
+            Abrir planilla CX ↗
+          </a>
+        )}
         {vista === 'derivadas' && visibles.length > 0 && (
-          <button className="btn" onClick={copiarParaCx}>{copiado ? 'Copiado ✓' : 'Copiar lista'}</button>
+          <>
+            <button className="btn" onClick={descargarCsv} title="Respaldo: baja lo que se ve en CSV, sin marcar nada">CSV</button>
+            <button className="btn" onClick={copiarParaCx}>{copiado ? 'Copiado ✓' : 'Copiar lista'}</button>
+          </>
         )}
         <span className="cnt">{visibles.length} alertas</span>
       </div>
