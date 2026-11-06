@@ -54,7 +54,7 @@ export async function GET(request: Request) {
     const ms = Date.now() - t0;
     await sb.from('en_vivo_sync').insert({ ok: true, filas_diario: diario.length, terapeutas: terapeutas.length, ms });
 
-    let alertas: number | string;
+    let alertas: Record<string, number | string> | string;
     try {
       const filas = await withMysql((conn) => leerAlertas(conn, diaLocal(new Date())));
       alertas = await guardarAlertas(sb, filas);

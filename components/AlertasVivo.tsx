@@ -8,15 +8,20 @@ import type { PaisFilter, TherapistView } from '@/lib/types';
  * Solapa En vivo → Alertas: pacientes para rescatar.
  *
  * Las alertas las crea el cron diario (lib/en-vivo-alertas.ts) en
- * `alertas_vivo`. Acá el equipo las deriva a CX o las cierra.
+ * `alertas_vivo`. Acá el equipo se las pasa a CX.
  *
  * Una alerta está "vigente" si la vio la última corrida del cron. Si dejó de
  * verla, el paciente agendó o pasó la ventana de la regla: va a Cerradas como
- * "Agendó" o "Venció sin agendar", sin que nadie la toque. Así se distingue lo
- * que resolvió el equipo de lo que se resolvió solo.
+ * "Agendó" o "Venció sin agendar", sin que nadie la toque. Por eso no hay
+ * botón "Resuelto": lo que importa (si agendó) se detecta solo.
  *
  * A CX se le pasa una planilla (CX tiene su propia matrix, no conectada con
- * esta): "Descargar para CX" baja lo que se ve y lo marca como derivado.
+ * esta): "Descargar para CX" baja lo que se ve y lo marca como derivado. CX
+ * la devuelve con "Respuesta CX" completa y se carga en `respuestas_cx`.
+ *
+ * Descartar es la excepción (por ejemplo, un paciente con problemas graves):
+ * se hace desde el caso, con motivo obligatorio, y no cuenta en los
+ * resultados.
  *
  * El nombre del paciente no está en Supabase: se pide a /api/en-vivo/pacientes,
  * que lo lee de la plataforma en el momento.
@@ -24,12 +29,13 @@ import type { PaisFilter, TherapistView } from '@/lib/types';
 
 type Estado = 'abierta' | 'derivada_cx' | 'resuelta' | 'descartada';
 type Vista = 'pendientes' | 'derivadas' | 'cerradas';
-type Regla = 'T' | 'A' | 'B';
+type CodRegla = 'A' | 'B' | 'C';
+type Regla = 'T' | CodRegla;
 type OrdenDias = 'desc' | 'asc';
 
 type Alerta = {
   id: string;
-  regla: 'A' | 'B';
+  regla: CodRegla;
   therapist_id: string;
   paciente_id: number;
   fecha_referencia: string;
@@ -39,6 +45,13 @@ type Alerta = {
   estado_por: string | null;
   estado_at: string | null;
   nota: string | null;
+};
+
+type RespuestaCx = {
+  paciente_id: number;
+  respuesta: string;
+  comentario: string | null;
+  fecha_reporte: string;
 };
 
 type Fila = Alerta & {
@@ -61,11 +74,28 @@ const DIAS_HISTORIA = 60;
 // Hasta cuántos días mira cada regla del cron (lib/en-vivo-alertas.ts). Una
 // alerta que deja de aparecer cerca de ese tope salió por edad: sin esto se
 // mostraría como "Agendó" y inflaría los rescates.
-const VENTANA_DIAS: Record<'A' | 'B', number> = { A: 30, B: 35 };
+const VENTANA_DIAS: Record<CodRegla, number> = { A: 30, B: 35, C: 45 };
 
-const TEXTO_REGLA: Record<'A' | 'B', string> = {
+const TEXTO_REGLA: Record<CodRegla, string> = {
   A: 'Se registró y no agendó',
   B: 'Tuvo la 1ª sesión y no agendó la 2ª',
+  C: 'Tuvo la 4ª sesión y no volvió a la 5ª',
+};
+
+const DESDE_REGLA: Record<CodRegla, string> = {
+  A: 'desde el registro',
+  B: 'desde la 1ª sesión',
+  C: 'desde la 4ª sesión',
+};
+
+// Las opciones de "Respuesta CX", en el orden en que van en la planilla.
+const RESPUESTAS_CX: Record<string, string> = {
+  no_respondio: 'No respondió',
+  va_a_agendar: 'Va a agendar',
+  cambio_psicologo: 'Pide cambio de psicólogo',
+  no_sigue_precio: 'No sigue por precio',
+  no_sigue_otro: 'No sigue por tiempo u otro motivo',
+  contacto_erroneo: 'Contacto erróneo',
 };
 
 const ESTILOS = `
@@ -73,13 +103,17 @@ const ESTILOS = `
 .va-r { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:4px; font-size:10px; font-weight:700; font-family:var(--m); }
 .va-rA { background:rgba(245,166,35,.12); color:var(--am); border:1px solid rgba(245,166,35,.3); }
 .va-rB { background:rgba(79,142,247,.1); color:var(--ac); border:1px solid rgba(79,142,247,.3); }
-.va-acc { display:flex; gap:4px; }
-.va-acc .btn { padding:3px 8px; font-size:10px; }
+.va-rC { background:rgba(167,139,250,.1); color:var(--ar); border:1px solid rgba(167,139,250,.3); }
 .va-cx { border-color:rgba(52,211,153,.4) !important; color:var(--v) !important; }
 .va-sub { font-size:10px; color:var(--t3); }
+.va-pac { cursor:pointer; }
+.va-pac:hover .tn { color:var(--ac); text-decoration:underline; }
 .va-err { background:rgba(240,82,82,.08); border:1px solid rgba(240,82,82,.3); color:var(--r); border-radius:6px; padding:6px 10px; font-size:11px; margin-bottom:8px; }
-.c-va-r { width:34px; } .c-va-pac { width:190px; } .c-va-ps { width:170px; } .c-va-d { width:150px; }
-.c-va-det { width:74px; } .c-va-est { width:120px; } .c-va-acc { width:220px; }
+.va-res { background:var(--bg2); border:1px solid var(--bd); border-radius:8px; padding:8px 11px; font-size:12px; color:var(--t2); margin-bottom:8px; display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+.va-res b { color:var(--t); font-family:var(--m); }
+.va-ta { width:100%; min-height:60px; background:var(--bg3); border:1px solid var(--bd2); color:var(--t); border-radius:6px; padding:6px 8px; font-family:var(--f); font-size:12px; resize:vertical; }
+.c-va-r { width:40px; } .c-va-pac { width:200px; } .c-va-ps { width:180px; } .c-va-d { width:150px; }
+.c-va-det { width:74px; } .c-va-est { width:170px; }
 `;
 
 function diaLocal(d: Date): string {
@@ -103,6 +137,7 @@ export function AlertasVivo({
   ultimaCorrida: string | null;
 }) {
   const [alertas, setAlertas] = useState<Alerta[]>([]);
+  const [respuestas, setRespuestas] = useState<Map<number, RespuestaCx[]>>(new Map());
   const [nombres, setNombres] = useState<Record<string, string>>({});
   const [errorNombres, setErrorNombres] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -110,6 +145,7 @@ export function AlertasVivo({
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState<string | null>(null);
   const [copiado, setCopiado] = useState(false);
+  const [caso, setCaso] = useState<Fila | null>(null);
 
   const [vista, setVista] = useState<Vista>('pendientes');
   const [regla, setRegla] = useState<Regla>('T');
@@ -141,6 +177,25 @@ export function AlertasVivo({
         }
         if (!vivo) return;
         setAlertas(out);
+
+        // Respuestas de CX. Si la tabla todavía no existe o falla, la bandeja
+        // se ve igual, sin esa información.
+        const resp = new Map<number, RespuestaCx[]>();
+        for (let i = 0; ; i += 1000) {
+          const { data, error: e } = await sb
+            .from('respuestas_cx')
+            .select('paciente_id, respuesta, comentario, fecha_reporte')
+            .order('fecha_reporte', { ascending: false })
+            .range(i, i + 999);
+          if (e || !data) break;
+          for (const r of data as RespuestaCx[]) {
+            const arr = resp.get(Number(r.paciente_id));
+            if (arr) arr.push(r);
+            else resp.set(Number(r.paciente_id), [r]);
+          }
+          if (data.length < 1000) break;
+        }
+        if (vivo) setRespuestas(resp);
 
         // Los nombres llegan después: la bandeja se ve igual con el número
         // de paciente si la plataforma tarda o falla.
@@ -177,7 +232,7 @@ export function AlertasVivo({
       const mx = matrixPor.get(a.therapist_id) ?? null;
       const vigente = !diaCorrida || a.vista_ultima >= diaCorrida;
       const edadAlUltimoVisto = (Date.parse(a.vista_ultima) - Date.parse(a.fecha_referencia)) / 86_400_000;
-      const vencida = !vigente && edadAlUltimoVisto >= VENTANA_DIAS[a.regla] - 2;
+      const vencida = !vigente && edadAlUltimoVisto >= (VENTANA_DIAS[a.regla] ?? 30) - 2;
       const v: Vista =
         !vigente || a.estado === 'resuelta' || a.estado === 'descartada'
           ? 'cerradas'
@@ -221,11 +276,11 @@ export function AlertasVivo({
 
   const totales = useMemo(() => {
     const hace7 = diaLocal(new Date(Date.now() - 7 * 86_400_000));
-    const t = { a: 0, b: 0, derivadas: 0, cerradas: 0, solas7: 0 };
+    const t = { A: 0, B: 0, C: 0, pendientes: 0, derivadas: 0, cerradas: 0, solas7: 0 };
     for (const f of enPais) {
       if (f.vista === 'pendientes') {
-        if (f.regla === 'A') t.a++;
-        else t.b++;
+        t[f.regla]++;
+        t.pendientes++;
       } else if (f.vista === 'derivadas') t.derivadas++;
       else t.cerradas++;
       if (!f.vigente && !f.vencida && f.vista_ultima >= hace7) t.solas7++;
@@ -233,14 +288,31 @@ export function AlertasVivo({
     return t;
   }, [enPais]);
 
-  async function cambiar(a: Fila, estado: Estado) {
+  // Qué pasó con lo que se le pasó a CX, sin pedirle nada a CX: si agendó o
+  // venció lo detecta el cron. Lo descartado no cuenta.
+  const resultadosCx = useMemo(() => {
+    const r = { total: 0, agendaron: 0, vencieron: 0, esperando: 0 };
+    for (const f of enPais) {
+      if (f.estado !== 'derivada_cx') continue;
+      if (regla !== 'T' && f.regla !== regla) continue;
+      r.total++;
+      if (f.vigente) r.esperando++;
+      else if (f.vencida) r.vencieron++;
+      else r.agendaron++;
+    }
+    return r;
+  }, [enPais, regla]);
+
+  async function cambiar(a: Fila, estado: Estado, nota?: string) {
     setGuardando(a.id);
     setError(null);
-    const cambios = { estado, estado_por: email, estado_at: new Date().toISOString() };
+    const cambios: Partial<Alerta> = { estado, estado_por: email, estado_at: new Date().toISOString() };
+    if (nota !== undefined) cambios.nota = nota;
     const { error: e } = await getSupabase().from('alertas_vivo').update(cambios).eq('id', a.id);
     if (e) setError(`No se pudo guardar: ${e.message}`);
     else setAlertas((prev) => prev.map((x) => (x.id === a.id ? { ...x, ...cambios } : x)));
     setGuardando(null);
+    return !e;
   }
 
   function nombrePaciente(f: Fila): string {
@@ -248,9 +320,13 @@ export function AlertasVivo({
   }
 
   function motivo(f: Fila): string {
-    return f.regla === 'A'
-      ? `se registró hace ${f.dias} días y no agendó`
-      : `tuvo la 1ª sesión hace ${f.dias} días y no agendó la 2ª`;
+    if (f.regla === 'A') return `se registró hace ${f.dias} días y no agendó`;
+    if (f.regla === 'B') return `tuvo la 1ª sesión hace ${f.dias} días y no agendó la 2ª`;
+    return `tuvo la 4ª sesión hace ${f.dias} días y no volvió a la 5ª`;
+  }
+
+  function ultimaRespuesta(f: Fila): RespuestaCx | null {
+    return respuestas.get(f.paciente_id)?.[0] ?? null;
   }
 
   // Texto listo para pegar en el canal de CX: una línea por paciente.
@@ -270,9 +346,15 @@ export function AlertasVivo({
   // Planilla para CX con lo que se ve (respeta filtros y buscador). Desde
   // Pendientes, las marca como derivadas sin preguntar: así la descarga del
   // día siguiente trae solo las nuevas, y queda registro de qué se le pasó a CX.
+  // Las dos últimas columnas van vacías: las completa CX y la planilla vuelve.
   async function descargarParaCx() {
     const filasCsv = visibles;
-    const encabezado = ['Paciente', 'N° paciente', 'Psicólogo/a', 'País', 'Regla', 'Motivo', 'Días', 'Fecha (registro o 1ª sesión)', 'Detectada'];
+    const encabezado = [
+      'Paciente', 'N° paciente', 'Psicólogo/a', 'País', 'Regla', 'Motivo', 'Días',
+      'Fecha (registro o sesión)', 'Detectada',
+      `Respuesta CX (${Object.values(RESPUESTAS_CX).join(' / ')})`,
+      'Comentario CX',
+    ];
     const lineas = filasCsv.map((f) => [
       nombrePaciente(f),
       String(f.paciente_id),
@@ -283,6 +365,8 @@ export function AlertasVivo({
       String(f.dias),
       ddmm(diaLocal(new Date(f.fecha_referencia))),
       ddmm(f.detectada_el),
+      '',
+      '',
     ]);
     // Punto y coma y BOM: así Excel en español lo abre en columnas y con tildes.
     const csv = String.fromCharCode(0xfeff) + [encabezado, ...lineas].map((l) => l.map(celdaCsv).join(';')).join('\r\n');
@@ -316,6 +400,7 @@ export function AlertasVivo({
 
   const paginas = Math.ceil(visibles.length / POR_PAGINA);
   const pag = visibles.slice(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA);
+  const pct = (n: number) => (resultadosCx.total ? Math.round((n / resultadosCx.total) * 100) : 0);
 
   return (
     <>
@@ -323,12 +408,16 @@ export function AlertasVivo({
 
       <div className="ks" style={{ marginTop: 8 }}>
         <div className="k" onClick={() => { setVista('pendientes'); setRegla('A'); }}>
-          <div className="kv" style={{ color: 'var(--am)' }}>{totales.a}</div>
+          <div className="kv" style={{ color: 'var(--am)' }}>{totales.A}</div>
           <div className="kl">A · Registro sin agendar</div>
         </div>
         <div className="k" onClick={() => { setVista('pendientes'); setRegla('B'); }}>
-          <div className="kv" style={{ color: 'var(--ac)' }}>{totales.b}</div>
+          <div className="kv" style={{ color: 'var(--ac)' }}>{totales.B}</div>
           <div className="kl">B · Sin 2ª sesión</div>
+        </div>
+        <div className="k" onClick={() => { setVista('pendientes'); setRegla('C'); }}>
+          <div className="kv" style={{ color: 'var(--ar)' }}>{totales.C}</div>
+          <div className="kl">C · Sin 5ª sesión</div>
         </div>
         <div className="k" onClick={() => { setVista('derivadas'); setRegla('T'); }}>
           <div className="kv" style={{ color: 'var(--v)' }}>{totales.derivadas}</div>
@@ -340,9 +429,19 @@ export function AlertasVivo({
         </div>
       </div>
 
+      {resultadosCx.total > 0 && (
+        <div className="va-res" title="Se calcula solo: el cron detecta si cada paciente derivado agendó o si venció la ventana sin agendar">
+          <span>Derivados a CX{regla !== 'T' ? ` (regla ${regla})` : ''}: <b>{resultadosCx.total}</b></span>
+          <span style={{ color: 'var(--v)' }}>Agendaron <b>{resultadosCx.agendaron}</b> ({pct(resultadosCx.agendaron)}%)</span>
+          <span style={{ color: 'var(--r)' }}>Vencieron sin agendar <b>{resultadosCx.vencieron}</b> ({pct(resultadosCx.vencieron)}%)</span>
+          <span>Siguen esperando <b>{resultadosCx.esperando}</b></span>
+        </div>
+      )}
+
       <div className="va-leg">
         <span><span className="va-r va-rA">A</span> Se registró hace más de 48 h y no agendó con su psicólogo/a.</span>
         <span><span className="va-r va-rB">B</span> Tuvo la 1ª sesión hace más de 5 días y no tiene otra agendada.</span>
+        <span><span className="va-r va-rC">C</span> Tuvo la 4ª sesión hace más de 14 días y no tiene otra agendada.</span>
       </div>
 
       {error && <div className="va-err">{error}</div>}
@@ -350,7 +449,7 @@ export function AlertasVivo({
 
       <div className="ctr">
         <div className="tog">
-          <button className={`togb ${vista === 'pendientes' ? 'on' : ''}`} onClick={() => setVista('pendientes')}>Pendientes ({totales.a + totales.b})</button>
+          <button className={`togb ${vista === 'pendientes' ? 'on' : ''}`} onClick={() => setVista('pendientes')}>Pendientes ({totales.pendientes})</button>
           <button className={`togb ${vista === 'derivadas' ? 'on' : ''}`} onClick={() => setVista('derivadas')}>Derivadas a CX ({totales.derivadas})</button>
           <button className={`togb ${vista === 'cerradas' ? 'on' : ''}`} onClick={() => setVista('cerradas')}>Cerradas ({totales.cerradas})</button>
         </div>
@@ -358,6 +457,7 @@ export function AlertasVivo({
           <option value="T">Todas las reglas</option>
           <option value="A">A · Registro sin agendar</option>
           <option value="B">B · Sin 2ª sesión</option>
+          <option value="C">C · Sin 5ª sesión</option>
         </select>
         <div className="sw">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -394,64 +494,54 @@ export function AlertasVivo({
             <thead>
               <tr>
                 <th className="c-va-r">Regla</th>
-                <th className="c-va-pac">Paciente</th>
+                <th className="c-va-pac" title="Tocá el nombre para ver el caso">Paciente</th>
                 <th className="c-va-ps">Psicólogo/a</th>
                 <th className="c-p">País</th>
                 <th
                   className={`c-va-d ${ordenDias ? 'ths' : ''}`}
-                  title="Días desde el registro (A) o desde la 1ª sesión (B). Tocá para ordenar."
+                  title="Días desde el registro (A), la 1ª sesión (B) o la 4ª sesión (C). Tocá para ordenar."
                   onClick={() => setOrdenDias((o) => (o === 'desc' ? 'asc' : 'desc'))}
                 >
                   Hace {ordenDias === 'asc' ? '↑' : ordenDias === 'desc' ? '↓' : '↕'}
                 </th>
                 <th className="c-va-det" title="Primer día en que apareció la alerta">Detectada</th>
                 <th className="c-va-est">Estado</th>
-                <th className="c-va-acc">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {pag.map((f) => (
-                <tr
-                  key={f.id}
-                  onClick={() => f.matrix && onRowClick(f.matrix)}
-                  style={{ cursor: f.matrix ? 'pointer' : 'default' }}
-                >
-                  <td className="c-va-r"><span className={`va-r va-r${f.regla}`} title={TEXTO_REGLA[f.regla]}>{f.regla}</span></td>
-                  <td className="c-va-pac">
-                    <div className="tn">{nombrePaciente(f)}</div>
-                    <div className="va-sub tm">#{f.paciente_id}</div>
-                  </td>
-                  <td className="c-va-ps tn" style={{ color: f.matrix ? undefined : 'var(--t2)' }}>{f.psicologo}</td>
-                  <td className="c-p">{f.pais === '—' ? '—' : <span className={`b ${f.pais === 'AR' ? 'bar' : 'buy'}`}>{f.pais}</span>}</td>
-                  <td className="c-va-d" title={motivo(f)}>
-                    <span className="tm" style={{ color: f.dias >= 14 ? 'var(--r)' : f.dias >= 7 ? 'var(--am)' : undefined }}>{f.dias} días</span>
-                    <div className="va-sub">{f.regla === 'A' ? 'desde el registro' : 'desde la 1ª sesión'}</div>
-                  </td>
-                  <td className="c-va-det tm">{ddmm(f.detectada_el)}</td>
-                  <td className="c-va-est">
-                    <EstadoBadge f={f} />
-                  </td>
-                  <td className="c-va-acc" onClick={(e) => e.stopPropagation()}>
-                    <div className="va-acc">
-                      {f.vista === 'pendientes' && (
-                        <>
-                          <button className="btn" disabled={guardando === f.id} onClick={() => cambiar(f, 'resuelta')}>Resuelto</button>
-                          <button className="btn" disabled={guardando === f.id} onClick={() => cambiar(f, 'descartada')} title="No hace falta rescatarlo (ej.: lo habló directo con el psicólogo)">Descartar</button>
-                        </>
-                      )}
-                      {f.vista === 'derivadas' && (
-                        <>
-                          <button className="btn" disabled={guardando === f.id} onClick={() => cambiar(f, 'resuelta')}>Resuelto</button>
-                          <button className="btn" disabled={guardando === f.id} onClick={() => cambiar(f, 'abierta')}>Volver a pendiente</button>
-                        </>
-                      )}
-                      {f.vista === 'cerradas' && f.vigente && (
-                        <button className="btn" disabled={guardando === f.id} onClick={() => cambiar(f, 'abierta')}>Reabrir</button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {pag.map((f) => {
+                const rcx = ultimaRespuesta(f);
+                return (
+                  <tr
+                    key={f.id}
+                    onClick={() => f.matrix && onRowClick(f.matrix)}
+                    style={{ cursor: f.matrix ? 'pointer' : 'default' }}
+                  >
+                    <td className="c-va-r"><span className={`va-r va-r${f.regla}`} title={TEXTO_REGLA[f.regla]}>{f.regla}</span></td>
+                    <td
+                      className="c-va-pac va-pac"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCaso(f);
+                      }}
+                    >
+                      <div className="tn">{nombrePaciente(f)}</div>
+                      <div className="va-sub tm">#{f.paciente_id}</div>
+                    </td>
+                    <td className="c-va-ps tn" style={{ color: f.matrix ? undefined : 'var(--t2)' }}>{f.psicologo}</td>
+                    <td className="c-p">{f.pais === '—' ? '—' : <span className={`b ${f.pais === 'AR' ? 'bar' : 'buy'}`}>{f.pais}</span>}</td>
+                    <td className="c-va-d" title={motivo(f)}>
+                      <span className="tm" style={{ color: f.dias >= 14 ? 'var(--r)' : f.dias >= 7 ? 'var(--am)' : undefined }}>{f.dias} días</span>
+                      <div className="va-sub">{DESDE_REGLA[f.regla]}</div>
+                    </td>
+                    <td className="c-va-det tm">{ddmm(f.detectada_el)}</td>
+                    <td className="c-va-est">
+                      <EstadoBadge f={f} />
+                      {rcx && <div className="va-sub">CX: {RESPUESTAS_CX[rcx.respuesta] ?? rcx.respuesta}</div>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -466,7 +556,115 @@ export function AlertasVivo({
           <button className="pb" disabled={pagina >= paginas - 1} onClick={() => setPagina((p) => p + 1)}>›</button>
         </div>
       )}
+
+      {caso && (
+        <Caso
+          f={filas.find((x) => x.id === caso.id) ?? caso}
+          nombre={nombrePaciente(caso)}
+          motivo={motivo(caso)}
+          respuestas={respuestas.get(caso.paciente_id) ?? []}
+          guardando={guardando === caso.id}
+          onCerrar={() => setCaso(null)}
+          onDescartar={async (texto) => {
+            if (await cambiar(caso, 'descartada', texto)) setCaso(null);
+          }}
+          onReabrir={async () => {
+            // Vuelve a donde estaba antes de descartarla: si ya se la habían
+            // pasado a CX no hay forma de saberlo, así que va a Pendientes.
+            if (await cambiar(caso, 'abierta', '')) setCaso(null);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+/** Ficha del caso: datos, respuestas de CX y la opción de descartar. */
+function Caso({
+  f,
+  nombre,
+  motivo,
+  respuestas,
+  guardando,
+  onCerrar,
+  onDescartar,
+  onReabrir,
+}: {
+  f: Fila;
+  nombre: string;
+  motivo: string;
+  respuestas: RespuestaCx[];
+  guardando: boolean;
+  onCerrar: () => void;
+  onDescartar: (motivo: string) => void;
+  onReabrir: () => void;
+}) {
+  const [texto, setTexto] = useState('');
+  const [descartando, setDescartando] = useState(false);
+  return (
+    <div className="ov open" onClick={onCerrar}>
+      <div className="mo" onClick={(e) => e.stopPropagation()}>
+        <div className="mh">
+          <div>
+            <div className="mn2">{nombre}</div>
+            <div className="mm">Paciente #{f.paciente_id} · {f.psicologo} ({f.pais})</div>
+          </div>
+          <button className="mcl" onClick={onCerrar}>✕</button>
+        </div>
+        <div className="mb">
+          <div className="ms">
+            <div className="mst">Alerta</div>
+            <div style={{ fontSize: 12 }}>
+              <span className={`va-r va-r${f.regla}`} style={{ marginRight: 6 }}>{f.regla}</span>
+              {motivo.charAt(0).toUpperCase() + motivo.slice(1)}.
+            </div>
+            <div className="va-sub" style={{ marginTop: 4 }}>Detectada el {ddmm(f.detectada_el)}</div>
+            <div style={{ marginTop: 6 }}><EstadoBadge f={f} /></div>
+          </div>
+
+          <div className="ms">
+            <div className="mst">Respuestas de CX</div>
+            {respuestas.length === 0 ? (
+              <div className="va-sub">Todavía no hay respuesta de CX para este paciente.</div>
+            ) : (
+              respuestas.map((r) => (
+                <div key={r.fecha_reporte} style={{ fontSize: 12, marginBottom: 4 }}>
+                  <span className="tm">{ddmm(r.fecha_reporte)}</span> · {RESPUESTAS_CX[r.respuesta] ?? r.respuesta}
+                  {r.comentario && <div className="va-sub">{r.comentario}</div>}
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="ms">
+            {f.estado === 'descartada' ? (
+              <>
+                <div className="mst">Descartada</div>
+                <div style={{ fontSize: 12, marginBottom: 8 }}>{f.nota || 'Sin motivo cargado.'}</div>
+                <button className="btn" disabled={guardando} onClick={onReabrir}>Reabrir</button>
+              </>
+            ) : !descartando ? (
+              <button className="btn" onClick={() => setDescartando(true)} title="Solo para excepciones: el caso deja de contar en los resultados">
+                Descartar caso…
+              </button>
+            ) : (
+              <>
+                <div className="mst">Descartar caso</div>
+                <div className="va-sub" style={{ marginBottom: 6 }}>
+                  Solo para excepciones (por ejemplo, un paciente con problemas graves). No cuenta en los resultados.
+                  Esto no lo bloquea en la plataforma: eso se sigue haciendo en el back.
+                </div>
+                <textarea className="va-ta" placeholder="Motivo (obligatorio)" value={texto} onChange={(e) => setTexto(e.target.value)} />
+                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                  <button className="btn" disabled={guardando || !texto.trim()} onClick={() => onDescartar(texto.trim())}>Confirmar descarte</button>
+                  <button className="btn" onClick={() => setDescartando(false)}>Cancelar</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -474,23 +672,24 @@ function EstadoBadge({ f }: { f: Fila }) {
   const quien = f.estado_por ? f.estado_por.split('@')[0] : null;
   const cuando = f.estado_at ? ddmm(diaLocal(new Date(f.estado_at))) : null;
   const pie = quien && cuando ? `${quien} · ${cuando}` : null;
+  const viaCx = f.estado === 'derivada_cx';
   let txt: string;
   let cls: string;
-  if (f.vencida) {
-    txt = 'Venció sin agendar';
+  if (f.estado === 'descartada') {
+    txt = 'Descartada';
+    cls = 'ts ts-s';
+  } else if (f.vencida) {
+    txt = viaCx ? 'Venció sin agendar (tras CX)' : 'Venció sin agendar';
     cls = 'ts ts-d';
   } else if (!f.vigente) {
-    txt = 'Agendó';
+    txt = viaCx ? 'Agendó tras CX' : 'Agendó solo';
     cls = 'ts ts-u';
-  } else if (f.estado === 'derivada_cx') {
+  } else if (viaCx) {
     txt = 'Derivada a CX';
     cls = 'ts ts-a';
   } else if (f.estado === 'resuelta') {
     txt = 'Resuelta';
     cls = 'ts ts-u';
-  } else if (f.estado === 'descartada') {
-    txt = 'Descartada';
-    cls = 'ts ts-s';
   } else {
     txt = 'Pendiente';
     cls = 'ts ts-e';
