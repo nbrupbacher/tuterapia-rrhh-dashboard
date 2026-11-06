@@ -1,8 +1,8 @@
 -- ============================================================
--- PROPUESTA · NO APLICADA · NECESITA EL OK DE NICO
+-- APLICADA el 2026-11-06 (migración "regla_c_y_respuestas_cx"), con OK de Talent.
 -- Matrix en vivo: nuevas opciones de "Respuesta CX" (pedido de Talent, 2026-11-06).
--- Cambia la lista de respuestas permitidas en respuestas_cx. La tabla está
--- vacía: no modifica ni borra filas.
+-- Cambia la lista de respuestas permitidas en respuestas_cx. La tabla estaba
+-- vacía: no modificó ni borró filas.
 -- ============================================================
 
 alter table public.respuestas_cx drop constraint respuestas_cx_respuesta_check;
