@@ -8,6 +8,7 @@
  *  1. Manda al dashboard las respuestas de CX que todavía no se guardaron.
  *  2. Trae las alertas derivadas a CX: agrega las nuevas y actualiza días y
  *     situación (si el paciente ya agendó, se ve acá y no hace falta llamar).
+ *     También trae el teléfono y, si tiene código de país, un link de WhatsApp.
  *
  * El dashboard valida el token de Google de quien sincroniza: tiene que ser
  * una cuenta @tuterapia.com.uy y este script tiene que estar habilitado en la
@@ -16,17 +17,19 @@
 
 var API = 'https://tuterapia-rrhh-dashboard.vercel.app/api/cx/planilla';
 var HOJA = 'CX';
+// Celda donde queda la última sincronización (o el error).
+var ESTADO = 'R1';
 
 var COLS = [
-  'Paciente', 'N° paciente', 'Psicólogo/a', 'País', 'Regla', 'Motivo', 'Días',
-  'Fecha (registro o sesión)', 'Derivada el', 'Situación',
-  'Respuesta CX', 'Comentario CX', 'Guardado', 'alerta_id',
+  'Paciente', 'Teléfono', 'WhatsApp', 'N° paciente', 'Psicólogo/a', 'País',
+  'Regla', 'Motivo', 'Días', 'Fecha (registro o sesión)', 'Derivada el',
+  'Situación', 'Respuesta CX', 'Comentario CX', 'Guardado', 'alerta_id',
 ];
 // Posiciones (1 = columna A).
 var C = {
-  paciente: 1, nro: 2, psicologo: 3, pais: 4, regla: 5, motivo: 6, dias: 7,
-  fecha: 8, derivada: 9, situacion: 10, respuesta: 11, comentario: 12,
-  guardado: 13, id: 14,
+  paciente: 1, telefono: 2, whatsapp: 3, nro: 4, psicologo: 5, pais: 6,
+  regla: 7, motivo: 8, dias: 9, fecha: 10, derivada: 11, situacion: 12,
+  respuesta: 13, comentario: 14, guardado: 15, id: 16,
 };
 
 function onOpen() {
@@ -82,14 +85,14 @@ function sincronizar() {
     var msg = 'Respuestas guardadas: ' + enviadas.ok +
       (enviadas.error ? ' · con error: ' + enviadas.error : '') +
       ' · alertas nuevas: ' + traidas.nuevas;
-    SpreadsheetApp.getActive().getSheetByName(HOJA).getRange('P1').setValue('Última sincronización: ' + ahora());
+    hoja.getRange(ESTADO).setValue('Última sincronización: ' + ahora() + (traidas.aviso ? ' · ' + traidas.aviso : ''));
     return msg;
   } catch (err) {
     // Queda escrito en la planilla: la sincronización de cada hora no muestra
     // carteles, y así CX ve que algo falló.
     var error = 'No se pudo sincronizar: ' + err.message;
     var h = SpreadsheetApp.getActive().getSheetByName(HOJA);
-    if (h) h.getRange('P1').setValue(ahora() + ' · ' + error);
+    if (h) h.getRange(ESTADO).setValue(ahora() + ' · ' + error);
     return error;
   } finally {
     lock.releaseLock();
@@ -120,11 +123,22 @@ function prepararHoja() {
     hoja = ss.getSheets()[0];
     hoja.setName(HOJA);
   }
+  // Planilla armada antes de que existieran Teléfono y WhatsApp: se insertan
+  // las dos columnas después de Paciente y todo lo demás se corre solo
+  // (datos, lista de respuestas, colores y la celda de estado).
+  if (hoja.getRange(1, 2).getValue() === 'N° paciente') {
+    hoja.insertColumnsAfter(C.paciente, 2);
+    hoja.getRange(1, C.telefono, 1, 2).setValues([[COLS[C.telefono - 1], COLS[C.whatsapp - 1]]]);
+    hoja.setColumnWidth(C.telefono, 130);
+    hoja.setColumnWidth(C.whatsapp, 90);
+  }
   if (hoja.getRange(1, 1).getValue() !== COLS[0]) {
     hoja.getRange(1, 1, 1, COLS.length).setValues([COLS]).setFontWeight('bold').setBackground('#e8f0fe');
     hoja.setFrozenRows(1);
     hoja.hideColumns(C.id);
     hoja.setColumnWidth(C.paciente, 200);
+    hoja.setColumnWidth(C.telefono, 130);
+    hoja.setColumnWidth(C.whatsapp, 90);
     hoja.setColumnWidth(C.psicologo, 200);
     hoja.setColumnWidth(C.motivo, 240);
     hoja.setColumnWidth(C.situacion, 140);
@@ -168,23 +182,46 @@ function traerAlertas(hoja) {
   var res = llamar('get');
   var filas = res.filas || [];
 
+  var porId = {};
+  filas.forEach(function (f) { porId[f.alerta_id] = f; });
+
+  // Filas que ya estaban: se actualizan días, situación y teléfono de una vez
+  // por columna (fila por fila es muy lento con cientos de alertas).
   var n = hoja.getLastRow() - 1;
-  var ids = n > 0 ? hoja.getRange(2, C.id, n, 1).getValues() : [];
-  var filaDe = {};
-  ids.forEach(function (v, i) { if (v[0]) filaDe[String(v[0])] = i + 2; });
+  var yaEstan = {};
+  if (n > 0) {
+    var ids = hoja.getRange(2, C.id, n, 1).getValues();
+    var dias = hoja.getRange(2, C.dias, n, 1).getValues();
+    var sit = hoja.getRange(2, C.situacion, n, 1).getValues();
+    var tel = hoja.getRange(2, C.telefono, n, 1).getValues();
+    var wa = hoja.getRange(2, C.whatsapp, n, 1).getRichTextValues();
+    ids.forEach(function (v, i) {
+      var id = String(v[0]);
+      if (!id) return;
+      yaEstan[id] = true;
+      var f = porId[id];
+      if (!f) return;
+      dias[i][0] = f.dias;
+      sit[i][0] = f.situacion;
+      tel[i][0] = f.telefono || '';
+      wa[i][0] = linkWhatsapp(f.whatsapp);
+    });
+    hoja.getRange(2, C.dias, n, 1).setValues(dias);
+    hoja.getRange(2, C.situacion, n, 1).setValues(sit);
+    hoja.getRange(2, C.telefono, n, 1).setNumberFormat('@').setValues(tel);
+    hoja.getRange(2, C.whatsapp, n, 1).setRichTextValues(wa);
+  }
 
   var nuevas = [];
+  var linksNuevos = [];
   filas.forEach(function (f) {
-    var fila = filaDe[f.alerta_id];
-    if (fila) {
-      hoja.getRange(fila, C.dias).setValue(f.dias);
-      hoja.getRange(fila, C.situacion).setValue(f.situacion);
-      return;
-    }
+    if (yaEstan[f.alerta_id]) return;
     // Solo se agregan las que todavía hay que llamar.
     if (f.situacion !== 'Esperando' || f.respuesta) return;
     var v = [];
     v[C.paciente - 1] = f.paciente || ('Paciente #' + f.paciente_id);
+    v[C.telefono - 1] = f.telefono || '';
+    v[C.whatsapp - 1] = '';
     v[C.nro - 1] = f.paciente_id;
     v[C.psicologo - 1] = f.psicologo;
     v[C.pais - 1] = f.pais;
@@ -199,12 +236,14 @@ function traerAlertas(hoja) {
     v[C.guardado - 1] = '';
     v[C.id - 1] = f.alerta_id;
     nuevas.push(v);
+    linksNuevos.push([linkWhatsapp(f.whatsapp)]);
   });
 
   if (nuevas.length) {
     var desde = hoja.getLastRow() + 1;
     // Texto plano: si no, Sheets convierte "05/11" en fecha.
     hoja.getRange(desde, 1, nuevas.length, COLS.length).setNumberFormat('@').setValues(nuevas);
+    hoja.getRange(desde, C.whatsapp, nuevas.length, 1).setRichTextValues(linksNuevos);
   }
 
   var total = hoja.getLastRow() - 1;
@@ -216,7 +255,13 @@ function traerAlertas(hoja) {
     hoja.getRange(2, C.respuesta, total, 1).setDataValidation(regla);
     colorearSituacion(hoja, total);
   }
-  return { nuevas: nuevas.length };
+  return { nuevas: nuevas.length, aviso: res.aviso };
+}
+
+// Celda con link "Escribir" que abre el chat de WhatsApp (vacía si no hay link).
+function linkWhatsapp(url) {
+  var t = SpreadsheetApp.newRichTextValue();
+  return url ? t.setText('Escribir').setLinkUrl(url).build() : t.setText('').build();
 }
 
 function colorearSituacion(hoja, total) {
