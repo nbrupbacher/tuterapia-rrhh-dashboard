@@ -295,17 +295,19 @@ export function AlertasVivo({
 
   const totales = useMemo(() => {
     const hace7 = diaLocal(new Date(Date.now() - 7 * 86_400_000));
-    const t = { A: 0, B: 0, C: 0, pendientes: 0, derivadas: 0, cerradas: 0, solas7: 0 };
+    const t = { A: 0, B: 0, C: 0, derivadasTodas: 0, pendientes: 0, derivadas: 0, cerradas: 0, solas7: 0 };
     for (const f of enPais) {
-      // Las tarjetas A/B/C muestran siempre el total de cada regla; los
-      // contadores de las vistas, solo la regla elegida, para que coincidan
-      // con la lista que se ve.
+      // Las tarjetas de arriba (A/B/C, Derivadas a CX, Agendaron) muestran
+      // siempre el total; los contadores de las vistas, solo la regla elegida,
+      // para que coincidan con la lista que se ve. Antes "Derivadas a CX" y
+      // "Agendaron" seguían a la regla y al tocar A o C quedaban en 0.
       if (f.vista === 'pendientes') t[f.regla]++;
+      if (f.vista === 'derivadas') t.derivadasTodas++;
+      if (!f.vigente && !f.vencida && f.vista_ultima >= hace7) t.solas7++;
       if (regla !== 'T' && f.regla !== regla) continue;
       if (f.vista === 'pendientes') t.pendientes++;
       else if (f.vista === 'derivadas') t.derivadas++;
       else t.cerradas++;
-      if (!f.vigente && !f.vencida && f.vista_ultima >= hace7) t.solas7++;
     }
     return t;
   }, [enPais, regla]);
@@ -448,7 +450,7 @@ export function AlertasVivo({
           <div className="kl">C · Sin 5ª sesión</div>
         </div>
         <div className="k" onClick={() => { setVista('derivadas'); setRegla('T'); }}>
-          <div className="kv" style={{ color: 'var(--v)' }}>{totales.derivadas}</div>
+          <div className="kv" style={{ color: 'var(--v)' }}>{totales.derivadasTodas}</div>
           <div className="kl">Derivadas a CX</div>
         </div>
         <div className="k" onClick={() => { setVista('cerradas'); setRegla('T'); }} title="Alertas que dejaron de aparecer porque el paciente agendó">

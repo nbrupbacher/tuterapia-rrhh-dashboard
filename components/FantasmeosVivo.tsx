@@ -195,7 +195,7 @@ const ESTILOS = `
 .fd-in, .fd-ta, .fd-sel { width:100%; background:var(--bg3); border:1px solid var(--bd2); color:var(--t); border-radius:6px; padding:6px 8px; font-family:var(--f); font-size:12px; }
 .fd-ta { min-height:60px; resize:vertical; }
 .fd-lb { font-size:11px; color:var(--t2); margin:8px 0 3px; display:block; }
-.fd-hd { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:14px 0 6px; flex-wrap:wrap; }
+.fd-hd { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:14px 0 6px; flex-wrap:wrap; scroll-margin-top:80px; }
 .fd-hd h3 { margin:0; font-size:14px; }
 .fd-tn { cursor:pointer; }
 .fd-tn:hover { color:var(--ac); text-decoration:underline; }
@@ -445,6 +445,10 @@ export function FantasmeosVivo({
     );
   };
 
+  // Los cuadros de arriba filtran y además bajan a su sección: con tres tablas
+  // en la solapa, el cambio quedaba fuera de la pantalla y parecía no andar.
+  const irA = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   if (cargando) return <div className="loading-wrap">Cargando fantasmeos…</div>;
 
   return (
@@ -452,23 +456,23 @@ export function FantasmeosVivo({
       <style>{ESTILOS}</style>
 
       <div className="ks" style={{ marginTop: 8 }}>
-        <div className="k" style={{ cursor: 'default' }}>
+        <div className="k" onClick={() => irA('fd-fantasmeados')}>
           <div className="kv" style={{ color: 'var(--ar)' }}>{vigentes.length}</div>
           <div className="kl">Fantasmeados hoy</div>
         </div>
-        <div className="k" onClick={() => setFiltroD('curso')}>
+        <div className="k" onClick={() => { setFiltroD('curso'); irA('fd-salidas'); }}>
           <div className="kv" style={{ color: 'var(--am)' }}>{enCurso}</div>
           <div className="kl">Salidas en curso</div>
         </div>
-        <div className="k" onClick={() => setFiltroD('falta_desactivar')}>
+        <div className="k" onClick={() => { setFiltroD('falta_desactivar'); irA('fd-salidas'); }}>
           <div className="kv" style={{ color: 'var(--r)' }}>{conteoD.falta_desactivar ?? 0}</div>
           <div className="kl">Falta desactivar en el back</div>
         </div>
-        <div className="k" onClick={() => setFiltroD('lista_para_desvincular')}>
+        <div className="k" onClick={() => { setFiltroD('lista_para_desvincular'); irA('fd-salidas'); }}>
           <div className="kv" style={{ color: 'var(--v)' }}>{conteoD.lista_para_desvincular ?? 0}</div>
           <div className="kl">Listas para desvincular</div>
         </div>
-        <div className="k" onClick={() => setVerTodasM(false)}>
+        <div className="k" onClick={() => { setVerTodasM(false); irA('fd-multas'); }}>
           <div className="kv" style={{ color: 'var(--am)' }}>{multasPorCobrar.length}</div>
           <div className="kl">Multas por cobrar</div>
         </div>
@@ -487,7 +491,7 @@ export function FantasmeosVivo({
       {error && <div className="fd-err">{error}</div>}
 
       {/* ===== Fantasmeos ===== */}
-      <div className="fd-hd">
+      <div className="fd-hd" id="fd-fantasmeados">
         <h3>Fantasmeados ({vigentes.length})</h3>
         <div style={{ display: 'flex', gap: 6 }}>
           <button className="btn" onClick={() => setVerHistF((v) => !v)}>
@@ -600,7 +604,7 @@ export function FantasmeosVivo({
       )}
 
       {/* ===== Salidas y desvinculaciones ===== */}
-      <div className="fd-hd">
+      <div className="fd-hd" id="fd-salidas">
         <h3>Salidas y desvinculaciones</h3>
         <button className="btn" onClick={() => setModal({ tipo: 'nuevaD' })}>+ Registrar salida</button>
       </div>
@@ -710,7 +714,7 @@ export function FantasmeosVivo({
       </div>
 
       {/* ===== Multas ===== */}
-      <div className="fd-hd">
+      <div className="fd-hd" id="fd-multas">
         <h3>Multas</h3>
         <div style={{ display: 'flex', gap: 6 }}>
           <button className="btn" onClick={() => setVerTodasM((v) => !v)}>
