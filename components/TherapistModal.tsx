@@ -12,6 +12,7 @@ import { ACCION_INMEDIATA, ACCION_TEMPORAL, ordenarSituacionesPorGravedad } from
 import { fetchNotes, addNote, deleteNote, type Note } from '@/lib/notes';
 import { markIntervention, unmarkIntervention, fetchTherapistInterventions } from '@/lib/interventions';
 import type { Intervention } from '@/lib/types';
+import { AccionesTalent } from '@/components/FantasmeosVivo';
 
 interface Props {
   therapist: TherapistView | null;
@@ -405,6 +406,9 @@ export function TherapistModal({ therapist, userEmail, currentMonth, onClose, on
               })()}
             </div>
           </div>
+
+          {/* ============ Fantasmeo, salida y multas ============ */}
+          <AccionesTalent key={r.id} therapist={r} />
 
           {/* ============ Notas ============ */}
           <div className="ms">
