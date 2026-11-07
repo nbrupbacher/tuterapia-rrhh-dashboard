@@ -218,7 +218,8 @@ export async function POST(request: Request) {
         porClave.add(clave);
         anotar(clave, 'agregada', `${ter.nombre} #${ter.id}`);
       } else {
-        const nueva = {
+        // Tipo explícito: con `...baja` (que puede ser {}) supabase-js no acepta la unión.
+        const nueva: Record<string, string | null> = {
           therapist_id: ter.id,
           motivo: motivoDe(f.pedido),
           form_enviado_at: formEnviado,
