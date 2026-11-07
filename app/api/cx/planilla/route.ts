@@ -13,7 +13,7 @@ export const maxDuration = 60;
  * La planilla tiene un Apps Script que llama acá cada hora (o con el menú
  * "Tu Terapia → Sincronizar"):
  * - GET devuelve las alertas derivadas a CX de los últimos 60 días, con el
- *   nombre del paciente, y si el paciente ya agendó o venció.
+ *   nombre y teléfono del paciente, y si el paciente ya agendó o venció.
  * - POST recibe las respuestas que completó CX y las guarda en
  *   `respuestas_cx`, que es lo que la bandeja ya muestra.
  *
@@ -111,31 +111,71 @@ function admin() {
   });
 }
 
-async function nombresPacientes(ids: number[]): Promise<Record<string, string>> {
-  if (ids.length === 0) return {};
+// Columnas de `pacientes` que pueden tener el teléfono, en orden de preferencia.
+// No conocemos el nombre exacto: se usa la primera que exista.
+const COLUMNAS_TELEFONO = ['celular', 'telefono', 'telefono_celular', 'tel', 'movil', 'whatsapp', 'phone', 'phone_number', 'mobile'];
+
+type DatosPacientes = {
+  nombres: Record<string, string>;
+  telefonos: Record<string, string>;
+  // Si no se encontró la columna del teléfono: dónde podría estar (solo nombres
+  // de tablas y columnas, nunca datos), para ajustar COLUMNAS_TELEFONO.
+  aviso?: string;
+};
+
+async function datosPacientes(ids: number[]): Promise<DatosPacientes> {
+  if (ids.length === 0) return { nombres: {}, telefonos: {} };
   return withMysql(async (conn) => {
     // Igual que /api/en-vivo/pacientes: el apellido puede no existir.
     const [cols] = await conn.query<RowDataPacket[]>(
       `SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pacientes'
-          AND COLUMN_NAME IN ('apellido', 'apellidos')`,
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pacientes'`,
     );
-    const apellido = cols[0]?.c ? String(cols[0].c) : null;
-    const out: Record<string, string> = {};
+    const existentes = new Set(cols.map((c) => String(c.c).toLowerCase()));
+    const apellido = ['apellido', 'apellidos'].find((c) => existentes.has(c)) ?? null;
+    const telefono = COLUMNAS_TELEFONO.find((c) => existentes.has(c)) ?? null;
+
+    let aviso: string | undefined;
+    if (!telefono) {
+      const [cand] = await conn.query<RowDataPacket[]>(
+        `SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND (COLUMN_NAME LIKE '%tel%' OR COLUMN_NAME LIKE '%cel%' OR COLUMN_NAME LIKE '%phone%'
+              OR COLUMN_NAME LIKE '%movil%' OR COLUMN_NAME LIKE '%whats%')
+          LIMIT 40`,
+      );
+      aviso = `Sin columna de teléfono en pacientes. Posibles: ${cand.map((r) => `${r.t}.${r.c}`).join(', ') || 'ninguna'}`;
+      console.warn('[cx/planilla]', aviso);
+    }
+
+    const nombres: Record<string, string> = {};
+    const telefonos: Record<string, string> = {};
     for (let i = 0; i < ids.length; i += 1000) {
       const [rows] = await conn.query<RowDataPacket[]>(
-        `SELECT id_login AS id, nombre${apellido ? `, ${apellido} AS apellido` : ''}
+        `SELECT id_login AS id, nombre${apellido ? `, ${apellido} AS apellido` : ''}${telefono ? `, ${telefono} AS telefono` : ''}
            FROM pacientes
           WHERE id_login IN (?)`,
         [ids.slice(i, i + 1000)],
       );
       for (const r of rows) {
         const completo = [r.nombre, r.apellido].map((s) => (s == null ? '' : String(s).trim())).filter(Boolean).join(' ');
-        if (completo) out[String(r.id)] = completo;
+        if (completo) nombres[String(r.id)] = completo;
+        const tel = r.telefono == null ? '' : String(r.telefono).trim();
+        if (tel) telefonos[String(r.id)] = tel;
       }
     }
-    return out;
+    return { nombres, telefonos, aviso };
   });
+}
+
+// Link de WhatsApp solo si el número ya trae código de país (+598…, 00549…,
+// o 11 dígitos o más). Con un número local no sabemos el país del paciente.
+function linkWhatsapp(tel: string): string {
+  const t = tel.trim();
+  let digitos = t.replace(/\D/g, '');
+  if (t.startsWith('00')) digitos = digitos.slice(2);
+  const internacional = t.startsWith('+') || t.startsWith('00') || digitos.length >= 11;
+  return internacional && digitos.length >= 10 ? `https://wa.me/${digitos}` : '';
 }
 
 export async function GET(request: Request) {
@@ -193,7 +233,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const nombres = await nombresPacientes(pids);
+    const { nombres, telefonos, aviso } = await datosPacientes(pids);
     const ahora = Date.now();
 
     const filas = alertas.map((a) => {
@@ -209,6 +249,8 @@ export async function GET(request: Request) {
         alerta_id: a.id,
         paciente_id: Number(a.paciente_id),
         paciente: nombres[String(a.paciente_id)] ?? '',
+        telefono: telefonos[String(a.paciente_id)] ?? '',
+        whatsapp: linkWhatsapp(telefonos[String(a.paciente_id)] ?? ''),
         psicologo: ps?.nombre || `Terapeuta #${a.therapist_id}`,
         pais: ps?.pais ?? '',
         regla: a.regla,
@@ -221,7 +263,7 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json({ opciones: Object.values(RESPUESTAS), filas });
+    return NextResponse.json({ opciones: Object.values(RESPUESTAS), filas, aviso });
   } catch (e) {
     console.error('[cx/planilla] GET falló', e);
     return error(e instanceof Error ? e.message : 'error desconocido', 500);
