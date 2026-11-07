@@ -96,12 +96,14 @@ const RESPUESTAS_CX: Record<string, string> = {
   pide_derivacion: 'Pide derivación',
   va_a_agendar: 'Va a agendar',
   motivos_economicos: 'Motivos económicos',
-  siguio_por_fuera: 'Siguió por fuera',
+  terapeuta_externo: 'Terapeuta externo',
+  atiende_por_fuera: 'Atiende por fuera',
 };
 
-// "Siguió por fuera" es señal de que el psicólogo/a se llevó al paciente de la
-// plataforma: se resalta para que Talent lo mire como posible desvinculación.
-const RESPUESTA_ALERTA = 'siguio_por_fuera';
+// "Atiende por fuera": el paciente sigue con su psicólogo/a de TT pero fuera de
+// la plataforma. Se resalta para que Talent lo mire como posible desvinculación.
+// "Terapeuta externo" (consiguió otro afuera) no es culpa del psicólogo/a.
+const RESPUESTA_ALERTA = 'atiende_por_fuera';
 
 // Planilla compartida con CX. Se llena sola desde app/api/cx/planilla.
 const PLANILLA_CX_URL = 'https://docs.google.com/spreadsheets/d/1dY8PhFHrF2kEO2oaD_W3-tJ-QCnDM58-qrMndUPLTK8/edit';

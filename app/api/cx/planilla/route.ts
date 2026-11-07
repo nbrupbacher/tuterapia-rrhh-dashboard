@@ -51,7 +51,8 @@ const RESPUESTAS: Record<string, string> = {
   pide_derivacion: 'Pide derivación',
   va_a_agendar: 'Va a agendar',
   motivos_economicos: 'Motivos económicos',
-  siguio_por_fuera: 'Siguió por fuera',
+  terapeuta_externo: 'Terapeuta externo',
+  atiende_por_fuera: 'Atiende por fuera',
 };
 
 type Alerta = {
