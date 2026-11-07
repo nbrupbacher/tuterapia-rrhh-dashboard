@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import type { RowDataPacket } from 'mysql2/promise';
 import { withMysql } from '@/lib/mysql';
+import { autenticarScript, errorJson as error } from '@/lib/google-script-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,17 +18,12 @@ export const maxDuration = 60;
  * - POST recibe las respuestas que completó CX y las guarda en
  *   `respuestas_cx`, que es lo que la bandeja ya muestra.
  *
- * Autenticación sin secretos nuevos: el script manda el token de Google de
- * quien la usa. Se valida con Google y se exige (1) cuenta @tuterapia.com.uy
- * y (2) que el token lo haya pedido un script habilitado en
- * `cx_planilla_clientes`. Lo segundo evita que cualquier otra app con un
- * token de una cuenta de Tu Terapia pueda leer nombres de pacientes.
+ * Autenticación sin secretos nuevos: ver lib/google-script-auth.ts.
  *
  * Supabase se usa con la service key (la planilla no tiene sesión del
  * dashboard), pero solo para estas dos tablas y solo para alertas derivadas.
  */
 
-const DOMINIO = '@tuterapia.com.uy';
 const DIAS_HISTORIA = 60;
 const LOCAL_OFFSET_MS = 3 * 3_600_000;
 const TANDA = 300;
@@ -71,37 +67,6 @@ function diaLocal(d: Date): string {
 
 function ddmm(dia: string): string {
   return `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
-}
-
-function error(mensaje: string, status: number) {
-  return NextResponse.json({ error: mensaje }, { status });
-}
-
-/** Devuelve el email de quien llama, o la respuesta de error. */
-async function autenticar(request: Request, sb: SupabaseClient): Promise<string | NextResponse> {
-  const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
-  if (!token) return error('Falta el token de Google', 401);
-
-  // Por POST y no en la URL, para que el token no quede en ningún log.
-  const r = await fetch('https://oauth2.googleapis.com/tokeninfo', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ access_token: token }),
-    cache: 'no-store',
-  });
-  if (!r.ok) return error('Token de Google inválido o vencido', 401);
-  const info = (await r.json()) as { email?: string; email_verified?: string | boolean; azp?: string; aud?: string };
-
-  const email = String(info.email ?? '').toLowerCase();
-  if (!email.endsWith(DOMINIO) || String(info.email_verified) !== 'true') {
-    return error(`Solo cuentas ${DOMINIO}`, 403);
-  }
-
-  const cliente = String(info.azp ?? info.aud ?? '');
-  const { data, error: e } = await sb.from('cx_planilla_clientes').select('client_id').eq('client_id', cliente).maybeSingle();
-  if (e) return error(`Supabase: ${e.message}`, 500);
-  if (!data) return error(`Esta planilla no está habilitada todavía (cliente ${cliente}). Pedile a Talent que la habilite.`, 403);
-  return email;
 }
 
 function admin() {
@@ -199,7 +164,7 @@ function linkWhatsapp(tel: string, pais: string): string {
 
 export async function GET(request: Request) {
   const sb = admin();
-  const email = await autenticar(request, sb);
+  const email = await autenticarScript(request, sb);
   if (typeof email !== 'string') return email;
 
   try {
@@ -291,7 +256,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const sb = admin();
-  const email = await autenticar(request, sb);
+  const email = await autenticarScript(request, sb);
   if (typeof email !== 'string') return email;
 
   type Entrada = { alerta_id?: unknown; respuesta?: unknown; comentario?: unknown };

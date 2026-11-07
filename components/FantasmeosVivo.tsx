@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { getSupabase } from '@/lib/supabase';
 import type { PaisFilter, TherapistView } from '@/lib/types';
 
@@ -13,9 +14,20 @@ import type { PaisFilter, TherapistView } from '@/lib/types';
  *
  * Las salidas viven en `desvinculaciones`. El estado no se guarda: lo arma la
  * vista `desvinculaciones_estado` a partir de las fechas (form, liquidación,
- * desvinculado) y de `therapists.activo`. Así no hay un estado que alguien se
- * olvide de actualizar. "Falta desactivar" aparece recién con el CSV del mes
- * siguiente, que es cuando `activo` pasa a false.
+ * desvinculado, perfil desactivado). Así no hay un estado que alguien se
+ * olvide de actualizar. Talent desactiva el perfil el mismo día que
+ * desvincula: con esa fecha la salida pasa a "Baja confirmada". Si no se cargó,
+ * la confirma el CSV del mes siguiente (`therapists.activo` = false).
+ *
+ * El form de desvinculación se lee solo (app/api/talent/form-desvinculacion):
+ * si lo completó Talent, la baja y la desactivación son ese día; si lo completó
+ * el psicólogo/a, la salida queda en curso.
+ *
+ * Las multas (tabla `multas`) se avisan por mail. El pago lo informa el
+ * psicólogo/a y lo confirma Administración: son dos pasos distintos.
+ *
+ * Las mismas acciones están en el perfil de cada psicólogo/a (AccionesTalent,
+ * al final de este archivo), para no tener que venir a esta solapa.
  *
  * Lo cargado antes del 2026-11-06 vino de Monitorear y del form de
  * desvinculación (cargado_por = "importado de ..."). Los motivos de esos
@@ -55,6 +67,9 @@ type Desv = {
   desvinculado_at: string | null;
   desvinculado_por: string | null;
   cancelada_at: string | null;
+  desactivado_at: string | null;
+  desactivado_por: string | null;
+  form_email: string | null;
   nota: string | null;
   nombre: string;
   pais: string;
@@ -65,11 +80,33 @@ type Desv = {
 type Ter = { id: string; nombre: string; pais: string };
 type Vivo = { therapist_id: string; pacientes_activos: number; agendadas_7d: number };
 
+type Moneda = 'ARS' | 'UYU' | 'USD';
+type Multa = {
+  id: string;
+  therapist_id: string;
+  desvinculacion_id: string | null;
+  moneda: Moneda;
+  monto: number;
+  retenido: number;
+  saldo: number;
+  notificada_el: string;
+  vence_el: string | null;
+  pago_informado_el: string | null;
+  pago_confirmado_el: string | null;
+  pago_confirmado_por: string | null;
+  anulada_el: string | null;
+  mail_url: string | null;
+  nota: string | null;
+};
+type EstadoM = 'vencida' | 'notificada' | 'pago_informado' | 'pagada' | 'cubierta' | 'anulada';
+
 type Modal =
-  | { tipo: 'nuevoF' }
+  | { tipo: 'nuevoF'; therapistId?: string }
   | { tipo: 'editF'; f: Fantasmeo }
   | { tipo: 'nuevaD'; therapistId?: string; motivo?: MotivoD; fantasmeoId?: string }
-  | { tipo: 'editD'; d: Desv };
+  | { tipo: 'editD'; d: Desv }
+  | { tipo: 'nuevaM'; therapistId?: string; desvinculacionId?: string }
+  | { tipo: 'editM'; m: Multa };
 
 const MOTIVO_F: Record<MotivoF, string> = {
   salida_nuestra: 'Salida nuestra',
@@ -95,6 +132,46 @@ const ESTADO_D: Record<EstadoD, { txt: string; color: string }> = {
   cancelada: { txt: 'Cancelada', color: 'var(--t3)' },
 };
 const EN_CURSO: EstadoD[] = ['falta_desactivar', 'lista_para_desvincular', 'esperando_liquidacion', 'salida_a_definir'];
+
+// Igual que las salidas: lo que hay que mirar primero, arriba.
+const ESTADO_M: Record<EstadoM, { txt: string; color: string }> = {
+  vencida: { txt: 'Vencida sin pagar', color: 'var(--r)' },
+  notificada: { txt: 'Notificada', color: 'var(--ac)' },
+  pago_informado: { txt: 'Pago informado (falta confirmar)', color: 'var(--am)' },
+  pagada: { txt: 'Pagada', color: 'var(--v)' },
+  cubierta: { txt: 'Cubierta con lo retenido', color: 'var(--v)' },
+  anulada: { txt: 'Anulada', color: 'var(--t3)' },
+};
+const M_ABIERTAS: EstadoM[] = ['vencida', 'notificada', 'pago_informado'];
+
+const MONEDAS: Moneda[] = ['ARS', 'UYU', 'USD'];
+
+const DE_TU_TERAPIA = /@tuterapia\.com\.(uy|ar)$/i;
+
+function estadoMulta(m: Multa, hoy: string): EstadoM {
+  if (m.anulada_el) return 'anulada';
+  if (m.pago_confirmado_el) return 'pagada';
+  if (Number(m.saldo) <= 0) return 'cubierta';
+  if (m.pago_informado_el) return 'pago_informado';
+  if (m.vence_el && m.vence_el < hoy) return 'vencida';
+  return 'notificada';
+}
+
+function plata(n: number, moneda: Moneda): string {
+  return `${moneda} ${Number(n).toLocaleString('es-AR', { maximumFractionDigits: 2 })}`;
+}
+
+// El mail de la multa da 10 días hábiles para transferir el saldo.
+function sumarHabiles(dia: string, n: number): string {
+  const d = new Date(`${dia}T12:00:00Z`);
+  let k = 0;
+  while (k < n) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const w = d.getUTCDay();
+    if (w !== 0 && w !== 6) k++;
+  }
+  return d.toISOString().slice(0, 10);
+}
 
 // Al iniciar una salida desde un fantasmeo, el motivo de salida sale del
 // motivo del fantasmeo si ya lo dice.
@@ -165,6 +242,8 @@ export function FantasmeosVivo({
 }) {
   const [fantasmeos, setFantasmeos] = useState<Fantasmeo[]>([]);
   const [desv, setDesv] = useState<Desv[]>([]);
+  const [multas, setMultas] = useState<Multa[]>([]);
+  const [verTodasM, setVerTodasM] = useState(false);
   const [ters, setTers] = useState<Map<string, Ter>>(new Map());
   const [vivo, setVivo] = useState<Map<string, Vivo>>(new Map());
   const [email, setEmail] = useState<string | null>(null);
@@ -182,15 +261,16 @@ export function FantasmeosVivo({
   const cargar = useCallback(async () => {
     try {
       const sb = getSupabase();
-      const [f, d, v, u] = await Promise.all([
+      const [f, d, v, u, m] = await Promise.all([
         leerTodo<Fantasmeo>('fantasmeos'),
         leerTodo<Desv>('desvinculaciones_estado'),
         leerTodo<Vivo>('en_vivo_terapeuta', 'therapist_id,pacientes_activos,agendadas_7d'),
         sb.auth.getUser(),
+        leerTodo<Multa>('multas'),
       ]);
-      // Nombres de los fantasmeados: pueden no estar en la Matrix del mes
-      // (por ejemplo, si ya se dieron de baja).
-      const ids = [...new Set(f.map((x) => x.therapist_id))];
+      // Nombres de fantasmeados y multados: pueden no estar en la Matrix del
+      // mes (por ejemplo, si ya se dieron de baja).
+      const ids = [...new Set([...f.map((x) => x.therapist_id), ...m.map((x) => x.therapist_id)])];
       const tmap = new Map<string, Ter>();
       for (let i = 0; i < ids.length; i += 200) {
         const { data, error: e } = await sb.from('therapists').select('id,nombre,pais').in('id', ids.slice(i, i + 200));
@@ -199,6 +279,7 @@ export function FantasmeosVivo({
       }
       setFantasmeos(f);
       setDesv(d);
+      setMultas(m);
       setTers(tmap);
       setVivo(new Map(v.map((x) => [x.therapist_id, x])));
       setEmail(u.data?.user?.email ?? null);
@@ -277,6 +358,21 @@ export function FantasmeosVivo({
   }, [desvPais, filtroD]);
   const enCurso = EN_CURSO.reduce((a, e) => a + (conteoD[e] ?? 0), 0);
 
+  const multasPais = useMemo(() => {
+    const orden = (e: EstadoM) => Object.keys(ESTADO_M).indexOf(e);
+    return multas
+      .filter((m) => pasa(m.therapist_id, nombreDe(m.therapist_id), paisDe(m.therapist_id)))
+      .map((m) => ({ m, estado: estadoMulta(m, hoy) }))
+      .sort((a, b) => orden(a.estado) - orden(b.estado) || b.m.notificada_el.localeCompare(a.m.notificada_el));
+  }, [multas, pasa, nombreDe, paisDe, hoy]);
+  const multasPorCobrar = multasPais.filter((x) => M_ABIERTAS.includes(x.estado));
+  const multasVisibles = verTodasM ? multasPais : multasPorCobrar;
+  const multaDeSalida = useMemo(() => {
+    const mp = new Map<string, Multa>();
+    for (const m of multas) if (m.desvinculacion_id && !m.anulada_el) mp.set(m.desvinculacion_id, m);
+    return mp;
+  }, [multas]);
+
   async function guardar(op: () => PromiseLike<{ error: { message: string; code?: string } | null }>) {
     setGuardando(true);
     setError(null);
@@ -312,13 +408,41 @@ export function FantasmeosVivo({
     );
 
   const desvincular = async (d: Desv) => {
-    if (!window.confirm(`¿Desvincular a ${d.nombre}? Después hay que desactivar el perfil en el back.`)) return;
+    if (!window.confirm(`¿Desvincular a ${d.nombre}?`)) return;
+    // Talent desactiva el perfil en el back en el momento: si ya está hecho,
+    // la salida queda cerrada sin esperar el CSV del mes siguiente.
+    const desactivado = window.confirm(
+      `¿Ya desactivaste el perfil de ${d.nombre} en el back?\n\nAceptar: sí, hoy.\nCancelar: todavía no (queda en "Falta desactivar").`,
+    );
+    const ahoraIso = new Date().toISOString();
     const ok = await guardar(() =>
-      sb.from('desvinculaciones').update({ desvinculado_at: new Date().toISOString(), desvinculado_por: email }).eq('id', d.id),
+      sb
+        .from('desvinculaciones')
+        .update({
+          desvinculado_at: ahoraIso,
+          desvinculado_por: email,
+          ...(desactivado ? { desactivado_at: ahoraIso, desactivado_por: email } : {}),
+        })
+        .eq('id', d.id),
     );
     // Si estaba fantasmeado, el fantasmeo termina acá: pasa a ser una baja.
     const f = fantasmeos.find((x) => x.therapist_id === d.therapist_id && !x.hasta);
     if (ok && f) await guardar(() => sb.from('fantasmeos').update({ hasta: hoy, cerrado_por: email }).eq('id', f.id));
+  };
+
+  const marcarDesactivado = (d: Desv) =>
+    guardar(() =>
+      sb.from('desvinculaciones').update({ desactivado_at: new Date().toISOString(), desactivado_por: email }).eq('id', d.id),
+    );
+
+  const pasoMulta = (m: Multa, paso: 'informado' | 'confirmado') => {
+    if (paso === 'confirmado' && !window.confirm(`¿Administración confirmó la transferencia de ${nombreDe(m.therapist_id)}?`)) return;
+    guardar(() =>
+      sb
+        .from('multas')
+        .update(paso === 'confirmado' ? { pago_confirmado_el: hoy, pago_confirmado_por: email } : { pago_informado_el: hoy })
+        .eq('id', m.id),
+    );
   };
 
   if (cargando) return <div className="loading-wrap">Cargando fantasmeos…</div>;
@@ -343,6 +467,10 @@ export function FantasmeosVivo({
         <div className="k" onClick={() => setFiltroD('lista_para_desvincular')}>
           <div className="kv" style={{ color: 'var(--v)' }}>{conteoD.lista_para_desvincular ?? 0}</div>
           <div className="kl">Listas para desvincular</div>
+        </div>
+        <div className="k" onClick={() => setVerTodasM(false)}>
+          <div className="kv" style={{ color: 'var(--am)' }}>{multasPorCobrar.length}</div>
+          <div className="kl">Multas por cobrar</div>
         </div>
       </div>
 
@@ -521,7 +649,12 @@ export function FantasmeosVivo({
                   </td>
                   <td className="c-p"><span className={`b ${d.pais === 'AR' ? 'bar' : 'buy'}`}>{d.pais}</span></td>
                   <td>{MOTIVO_D[d.motivo]}</td>
-                  <td className="tm">{ddmm(diaDe(d.form_enviado_at))}</td>
+                  <td className="tm">
+                    {ddmm(diaDe(d.form_enviado_at))}
+                    {d.form_email && (
+                      <div className="fd-sub">{DE_TU_TERAPIA.test(d.form_email) ? 'lo completó Talent' : 'lo completó el psicólogo/a'}</div>
+                    )}
+                  </td>
                   <td className="tm">{abierta ? v?.pacientes_activos ?? '—' : '—'}</td>
                   <td className="tm">{abierta ? v?.agendadas_7d ?? '—' : '—'}</td>
                   <td>
@@ -536,6 +669,12 @@ export function FantasmeosVivo({
                   <td>
                     <span className="fd-est" style={{ color: ESTADO_D[d.estado].color }}>{ESTADO_D[d.estado].txt}</span>
                     {d.desvinculado_at && <div className="fd-sub">Desvinculado {ddmm(diaDe(d.desvinculado_at))}</div>}
+                    {d.desactivado_at && <div className="fd-sub">Perfil desactivado {ddmm(diaDe(d.desactivado_at))}</div>}
+                    {multaDeSalida.has(d.id) &&
+                      (() => {
+                        const e = estadoMulta(multaDeSalida.get(d.id)!, hoy);
+                        return <div className="fd-sub" style={{ color: ESTADO_M[e].color }}>Multa: {ESTADO_M[e].txt}</div>;
+                      })()}
                   </td>
                   <td>
                     <div className="fd-acc">
@@ -547,6 +686,14 @@ export function FantasmeosVivo({
                       {d.estado === 'lista_para_desvincular' && (
                         <button className="btn" disabled={guardando} onClick={() => desvincular(d)}>Desvincular</button>
                       )}
+                      {d.estado === 'falta_desactivar' && (
+                        <button className="btn" disabled={guardando} onClick={() => marcarDesactivado(d)}>Ya desactivado</button>
+                      )}
+                      {d.motivo === 'nuestra' && !d.cancelada_at && !multaDeSalida.has(d.id) && (
+                        <button className="btn" onClick={() => setModal({ tipo: 'nuevaM', therapistId: d.therapist_id, desvinculacionId: d.id })}>
+                          + Multa
+                        </button>
+                      )}
                       <button className="btn" onClick={() => setModal({ tipo: 'editD', d })}>Editar</button>
                     </div>
                   </td>
@@ -557,8 +704,91 @@ export function FantasmeosVivo({
         </table>
       </div>
       <div className="fd-sub" style={{ marginTop: 6 }}>
-        &ldquo;Falta desactivar&rdquo; aparece cuando se marcó como desvinculado y el perfil sigue activo en el CSV del mes. Créditos a
-        favor de los pacientes: pendiente de saber dónde están en la plataforma.
+        &ldquo;Falta desactivar&rdquo;: se desvinculó pero no se cargó que el perfil esté desactivado en el back (y el CSV del mes
+        todavía lo muestra activo). El form de desvinculación entra solo. Créditos a favor de los pacientes: pendiente de saber
+        dónde están en la plataforma.
+      </div>
+
+      {/* ===== Multas ===== */}
+      <div className="fd-hd">
+        <h3>Multas</h3>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="btn" onClick={() => setVerTodasM((v) => !v)}>
+            {verTodasM ? 'Ver solo por cobrar' : `Ver todas (${multasPais.length})`}
+          </button>
+          <button className="btn" onClick={() => setModal({ tipo: 'nuevaM' })}>+ Registrar multa</button>
+        </div>
+      </div>
+      <div className="fd-sub" style={{ marginBottom: 6 }}>
+        El pago lo informa el psicólogo/a (por ejemplo, contesta el mail) y lo confirma Administración cuando ve la transferencia.
+        Hasta que Administración lo confirme queda en &ldquo;Pago informado&rdquo;.
+      </div>
+      <div className="tw">
+        <table>
+          <thead>
+            <tr>
+              <th className="c-n">Psicólogo/a</th>
+              <th className="c-p">País</th>
+              <th title="Día del mail. Si se cargó el link, abre el mail">Notificada</th>
+              <th>Multa</th>
+              <th title="Honorarios pendientes que se imputan a la multa">Retenido</th>
+              <th>Saldo</th>
+              <th>Vence</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {multasVisibles.length === 0 && (
+              <tr>
+                <td colSpan={9} className="fd-sub" style={{ padding: 12 }}>
+                  {verTodasM ? 'No hay multas con estos filtros.' : 'No hay multas por cobrar con estos filtros.'}
+                </td>
+              </tr>
+            )}
+            {multasVisibles.map(({ m, estado }) => {
+              const mx = matrixPor.get(m.therapist_id);
+              return (
+                <tr key={m.id}>
+                  <td className="c-n">
+                    <span className={`tn ${mx ? 'fd-tn' : ''}`} onClick={() => mx && onRowClick(mx)}>{nombreDe(m.therapist_id)}</span>
+                    {m.nota && <div className="fd-nota fd-sub">{m.nota}</div>}
+                  </td>
+                  <td className="c-p"><span className={`b ${paisDe(m.therapist_id) === 'AR' ? 'bar' : 'buy'}`}>{paisDe(m.therapist_id)}</span></td>
+                  <td className="tm">
+                    {m.mail_url ? (
+                      <a href={m.mail_url} target="_blank" rel="noopener noreferrer">{ddmm(m.notificada_el)}</a>
+                    ) : (
+                      ddmm(m.notificada_el)
+                    )}
+                  </td>
+                  <td className="tm">{plata(m.monto, m.moneda)}</td>
+                  <td className="tm">{Number(m.retenido) > 0 ? plata(m.retenido, m.moneda) : '—'}</td>
+                  <td className="tm">{plata(m.saldo, m.moneda)}</td>
+                  <td className="tm">{ddmm(m.vence_el)}</td>
+                  <td>
+                    <span className="fd-est" style={{ color: ESTADO_M[estado].color }}>{ESTADO_M[estado].txt}</span>
+                    {m.pago_informado_el && !m.pago_confirmado_el && <div className="fd-sub">Informó el {ddmm(m.pago_informado_el)}</div>}
+                    {m.pago_confirmado_el && (
+                      <div className="fd-sub" title={m.pago_confirmado_por ?? undefined}>Confirmado el {ddmm(m.pago_confirmado_el)}</div>
+                    )}
+                  </td>
+                  <td>
+                    <div className="fd-acc">
+                      {(estado === 'notificada' || estado === 'vencida') && (
+                        <button className="btn" disabled={guardando} onClick={() => pasoMulta(m, 'informado')}>Informó pago</button>
+                      )}
+                      {M_ABIERTAS.includes(estado) && (
+                        <button className="btn" disabled={guardando} onClick={() => pasoMulta(m, 'confirmado')}>Pago confirmado</button>
+                      )}
+                      <button className="btn" onClick={() => setModal({ tipo: 'editM', m })}>Editar</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       {modal && (
@@ -566,6 +796,7 @@ export function FantasmeosVivo({
           modal={modal}
           therapists={therapists}
           nombreDe={nombreDe}
+          paisDe={paisDe}
           guardando={guardando}
           error={error}
           hoy={hoy}
@@ -589,6 +820,7 @@ function ModalFD({
   modal,
   therapists,
   nombreDe,
+  paisDe,
   guardando,
   error,
   hoy,
@@ -599,6 +831,7 @@ function ModalFD({
   modal: Modal;
   therapists: TherapistView[];
   nombreDe: (id: string) => string;
+  paisDe: (id: string) => string;
   guardando: boolean;
   error: string | null;
   hoy: string;
@@ -609,7 +842,11 @@ function ModalFD({
   const sb = getSupabase();
   const f = modal.tipo === 'editF' ? modal.f : null;
   const d = modal.tipo === 'editD' ? modal.d : null;
-  const presetId = modal.tipo === 'nuevaD' ? modal.therapistId : f?.therapist_id ?? d?.therapist_id;
+  const m = modal.tipo === 'editM' ? modal.m : null;
+  const presetId =
+    modal.tipo === 'nuevaD' || modal.tipo === 'nuevoF' || modal.tipo === 'nuevaM'
+      ? modal.therapistId
+      : f?.therapist_id ?? d?.therapist_id ?? m?.therapist_id;
 
   const [psico, setPsico] = useState('');
   const [desde, setDesde] = useState(f?.desde ?? hoy);
@@ -617,7 +854,16 @@ function ModalFD({
   const [vuelve, setVuelve] = useState(f?.vuelve_previsto ?? '');
   const [motivoD, setMotivoD] = useState<MotivoD>(d?.motivo ?? (modal.tipo === 'nuevaD' ? modal.motivo : undefined) ?? 'a_definir');
   const [form, setForm] = useState(diaDe(d?.form_enviado_at ?? null) ?? '');
-  const [nota, setNota] = useState(f?.nota ?? d?.nota ?? '');
+  const [nota, setNota] = useState(f?.nota ?? d?.nota ?? m?.nota ?? '');
+  const [moneda, setMoneda] = useState<Moneda>(m?.moneda ?? (presetId && paisDe(presetId) === 'UY' ? 'UYU' : 'ARS'));
+  const [monto, setMonto] = useState(m ? String(m.monto) : '');
+  const [retenido, setRetenido] = useState(m && Number(m.retenido) > 0 ? String(m.retenido) : '');
+  const [notificada, setNotificada] = useState(m?.notificada_el ?? hoy);
+  const [vence, setVence] = useState(m?.vence_el ?? '');
+  const [mailUrl, setMailUrl] = useState(m?.mail_url ?? '');
+  const [informado, setInformado] = useState(m?.pago_informado_el ?? '');
+  const [confirmado, setConfirmado] = useState(m?.pago_confirmado_el ?? '');
+  const [errLocal, setErrLocal] = useState<string | null>(null);
 
   // El buscador muestra "Nombre (País) · #id"; el id es lo que se guarda.
   const opciones = useMemo(
@@ -626,13 +872,53 @@ function ModalFD({
   );
   const elegido = presetId ?? psico.match(/#(\w+)\s*$/)?.[1] ?? null;
 
-  const titulo =
-    modal.tipo === 'nuevoF' ? 'Registrar fantasmeo' : modal.tipo === 'editF' ? 'Editar fantasmeo' : modal.tipo === 'nuevaD' ? 'Registrar salida' : 'Editar salida';
+  const titulo = {
+    nuevoF: 'Registrar fantasmeo',
+    editF: 'Editar fantasmeo',
+    nuevaD: 'Registrar salida',
+    editD: 'Editar salida',
+    nuevaM: 'Registrar multa',
+    editM: 'Editar multa',
+  }[modal.tipo];
 
   const notaLimpia = nota.trim() || null;
 
   const guardar = () => {
     if (!elegido) return;
+    setErrLocal(null);
+    if (modal.tipo === 'nuevaM' || modal.tipo === 'editM') {
+      const montoN = Number(monto);
+      const retN = retenido ? Number(retenido) : 0;
+      if (!(montoN > 0)) return setErrLocal('Falta el monto de la multa.');
+      if (!(retN >= 0) || retN > montoN) return setErrLocal('Lo retenido tiene que estar entre 0 y el monto de la multa.');
+      if (!notificada) return setErrLocal('Falta la fecha del mail.');
+      const fila = {
+        moneda,
+        monto: montoN,
+        retenido: retN,
+        notificada_el: notificada,
+        vence_el: vence || sumarHabiles(notificada, 10),
+        pago_informado_el: informado || null,
+        pago_confirmado_el: confirmado || null,
+        ...(confirmado && !m?.pago_confirmado_el ? { pago_confirmado_por: email } : {}),
+        ...(!confirmado ? { pago_confirmado_por: null } : {}),
+        mail_url: mailUrl.trim() || null,
+        nota: notaLimpia,
+      };
+      if (modal.tipo === 'nuevaM') {
+        onGuardar(() =>
+          sb.from('multas').insert({
+            ...fila,
+            therapist_id: elegido,
+            desvinculacion_id: modal.desvinculacionId ?? null,
+            cargado_por: email ?? 'sin usuario',
+          }),
+        );
+      } else if (m) {
+        onGuardar(() => sb.from('multas').update(fila).eq('id', m.id));
+      }
+      return;
+    }
     if (modal.tipo === 'nuevoF') {
       onGuardar(() =>
         sb.from('fantasmeos').insert({
@@ -673,8 +959,9 @@ function ModalFD({
   };
 
   const esF = modal.tipo === 'nuevoF' || modal.tipo === 'editF';
+  const esM = modal.tipo === 'nuevaM' || modal.tipo === 'editM';
 
-  return (
+  const contenido = (
     <div className="ov open" onClick={onCerrar}>
       <div className="mo" onClick={(e) => e.stopPropagation()}>
         <div className="mh">
@@ -686,12 +973,25 @@ function ModalFD({
         </div>
         <div className="mb">
           <div className="ms">
-            {error && <div className="fd-err">{error}</div>}
+            {(errLocal ?? error) && <div className="fd-err">{errLocal ?? error}</div>}
 
             {!presetId && (
               <>
                 <label className="fd-lb">Psicólogo/a</label>
-                <input className="fd-in" list="fd-psicos" placeholder="Escribí el nombre y elegí de la lista" value={psico} onChange={(e) => setPsico(e.target.value)} />
+                <input
+                  className="fd-in"
+                  list="fd-psicos"
+                  placeholder="Escribí el nombre y elegí de la lista"
+                  value={psico}
+                  onChange={(e) => {
+                    setPsico(e.target.value);
+                    // La moneda de la multa sigue al país del psicólogo/a.
+                    if (esM && !m) {
+                      const p = e.target.value.match(/\((AR|UY)\) · #\w+\s*$/)?.[1];
+                      if (p) setMoneda(p === 'UY' ? 'UYU' : 'ARS');
+                    }
+                  }}
+                />
                 <datalist id="fd-psicos">
                   {opciones.map((o) => (
                     <option key={o} value={o} />
@@ -700,7 +1000,55 @@ function ModalFD({
               </>
             )}
 
-            {esF ? (
+            {esM ? (
+              <>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ width: 90 }}>
+                    <label className="fd-lb">Moneda</label>
+                    <select className="fd-sel" value={moneda} onChange={(e) => setMoneda(e.target.value as Moneda)}>
+                      {MONEDAS.map((x) => (
+                        <option key={x} value={x}>{x}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="fd-lb">Multa</label>
+                    <input className="fd-in" type="number" min="0" step="any" placeholder="200000" value={monto} onChange={(e) => setMonto(e.target.value)} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="fd-lb">Honorarios retenidos</label>
+                    <input className="fd-in" type="number" min="0" step="any" placeholder="0" value={retenido} onChange={(e) => setRetenido(e.target.value)} />
+                  </div>
+                </div>
+                {Number(monto) > 0 && (
+                  <div className="fd-sub" style={{ marginTop: 4 }}>
+                    Saldo a transferir: {plata(Math.max(Number(monto) - (Number(retenido) || 0), 0), moneda)}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <label className="fd-lb">Mail enviado el</label>
+                    <input className="fd-in" type="date" value={notificada} onChange={(e) => setNotificada(e.target.value)} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="fd-lb">Vence (vacío: 10 días hábiles)</label>
+                    <input className="fd-in" type="date" value={vence} onChange={(e) => setVence(e.target.value)} />
+                  </div>
+                </div>
+                <label className="fd-lb">Link al mail (opcional)</label>
+                <input className="fd-in" placeholder="https://mail.google.com/…" value={mailUrl} onChange={(e) => setMailUrl(e.target.value)} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <label className="fd-lb">Informó el pago el</label>
+                    <input className="fd-in" type="date" value={informado} onChange={(e) => setInformado(e.target.value)} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="fd-lb">Administración confirmó el</label>
+                    <input className="fd-in" type="date" value={confirmado} onChange={(e) => setConfirmado(e.target.value)} />
+                  </div>
+                </div>
+              </>
+            ) : esF ? (
               <>
                 <label className="fd-lb">Fantasmeado desde</label>
                 <input className="fd-in" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
@@ -760,10 +1108,165 @@ function ModalFD({
                   Volver a en curso
                 </button>
               )}
+              {m && (
+                <button
+                  className="btn"
+                  disabled={guardando}
+                  title={m.anulada_el ? 'Vuelve a contar como multa' : 'Se deja sin efecto (acuerdo, error): no se borra'}
+                  onClick={() => {
+                    if (!m.anulada_el && !window.confirm('¿Anular esta multa? Queda en el historial como anulada.')) return;
+                    onGuardar(() => sb.from('multas').update({ anulada_el: m.anulada_el ? null : hoy }).eq('id', m.id));
+                  }}
+                >
+                  {m.anulada_el ? 'Reactivar multa' : 'Anular multa'}
+                </button>
+              )}
             </div>
           </div>
         </div>
       </div>
+    </div>
+  );
+
+  // En un portal: desde el perfil del psicólogo/a este modal se abre encima de
+  // otro, y adentro de aquel el overlay no cubre la pantalla.
+  return typeof document === 'undefined' ? contenido : createPortal(contenido, document.body);
+}
+
+/**
+ * Bloque del perfil del psicólogo/a (TherapistModal): fantasmeo, salida y
+ * multas de esa persona, con las acciones para arrancar cada cosa. Así no hace
+ * falta ir a En vivo para fantasmear, iniciar una salida o registrar una multa.
+ * El seguimiento (liquidación, desvincular, pagos) sigue en la solapa.
+ */
+export function AccionesTalent({ therapist }: { therapist: TherapistView }) {
+  const sb = getSupabase();
+  const id = therapist.id;
+  const hoy = diaLocal(new Date());
+  const [fantasmeo, setFantasmeo] = useState<Fantasmeo | null>(null);
+  const [salidas, setSalidas] = useState<Desv[]>([]);
+  const [multas, setMultas] = useState<Multa[]>([]);
+  const [email, setEmail] = useState<string | null>(null);
+  const [modal, setModal] = useState<Modal | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const cargar = useCallback(async () => {
+    const [a, b, c, u] = await Promise.all([
+      sb.from('fantasmeos').select('*').eq('therapist_id', id).is('hasta', null).maybeSingle(),
+      sb.from('desvinculaciones_estado').select('*').eq('therapist_id', id).order('created_at', { ascending: false }),
+      sb.from('multas').select('*').eq('therapist_id', id).order('notificada_el', { ascending: false }),
+      sb.auth.getUser(),
+    ]);
+    const e = a.error ?? b.error ?? c.error;
+    setError(e ? e.message : null);
+    setFantasmeo((a.data as Fantasmeo | null) ?? null);
+    setSalidas((b.data ?? []) as Desv[]);
+    setMultas((c.data ?? []) as Multa[]);
+    setEmail(u.data?.user?.email ?? null);
+  }, [sb, id]);
+
+  useEffect(() => {
+    cargar();
+  }, [cargar]);
+
+  async function guardar(op: Op) {
+    setGuardando(true);
+    setError(null);
+    const { error: e } = await op();
+    setGuardando(false);
+    if (e) {
+      setError(e.code === '23505' ? 'Ya tiene uno abierto: está en En vivo → Fantasmeos y salidas.' : e.message);
+      return false;
+    }
+    await cargar();
+    return true;
+  }
+
+  const abierta = salidas.find((d) => EN_CURSO.includes(d.estado)) ?? null;
+  const cerrada = salidas.find((d) => d.estado === 'baja_confirmada') ?? null;
+  const salida = abierta ?? cerrada;
+
+  const desfantasmear = () => {
+    if (!fantasmeo) return;
+    if (!window.confirm(`¿Desfantasmear a ${therapist.nombre}? Acordate de volver a mostrarlo en el back.`)) return;
+    guardar(() => sb.from('fantasmeos').update({ hasta: hoy, cerrado_por: email }).eq('id', fantasmeo.id));
+  };
+
+  return (
+    <div className="ms">
+      <style>{ESTILOS}</style>
+      <div className="mst">Fantasmeo, salida y multas</div>
+      <div style={{ background: 'var(--bg3)', borderRadius: 7, padding: '9px 11px', fontSize: 12, lineHeight: 1.5 }}>
+        {error && <div className="fd-err">{error}</div>}
+        <div>
+          {fantasmeo ? (
+            <>
+              Fantasmeado desde <b>{ddmm(fantasmeo.desde)}</b> · {MOTIVO_F[fantasmeo.motivo]}
+              {fantasmeo.nota && <div className="fd-sub">{fantasmeo.nota}</div>}
+            </>
+          ) : (
+            <span className="fd-sub">No está fantasmeado.</span>
+          )}
+        </div>
+        {salida && (
+          <div>
+            Salida ({MOTIVO_D[salida.motivo]}):{' '}
+            <span style={{ color: ESTADO_D[salida.estado].color, fontWeight: 600 }}>{ESTADO_D[salida.estado].txt}</span>
+            {salida.desactivado_at && <span className="fd-sub"> · perfil desactivado {ddmm(diaDe(salida.desactivado_at))}</span>}
+          </div>
+        )}
+        {multas.map((m) => {
+          const e = estadoMulta(m, hoy);
+          return (
+            <div key={m.id}>
+              Multa del {ddmm(m.notificada_el)}: {plata(m.monto, m.moneda)} · saldo {plata(m.saldo, m.moneda)} ·{' '}
+              <span style={{ color: ESTADO_M[e].color, fontWeight: 600 }}>{ESTADO_M[e].txt}</span>
+            </div>
+          );
+        })}
+        <div className="fd-acc" style={{ marginTop: 8 }}>
+          {fantasmeo ? (
+            <button className="btn" disabled={guardando} onClick={desfantasmear}>Desfantasmear</button>
+          ) : (
+            !cerrada && <button className="btn" onClick={() => setModal({ tipo: 'nuevoF', therapistId: id })}>Fantasmear</button>
+          )}
+          {!salida && (
+            <button
+              className="btn"
+              onClick={() =>
+                setModal({ tipo: 'nuevaD', therapistId: id, motivo: fantasmeo ? SALIDA_DESDE_F[fantasmeo.motivo] : undefined, fantasmeoId: fantasmeo?.id })
+              }
+            >
+              Iniciar salida
+            </button>
+          )}
+          {abierta && <button className="btn" onClick={() => setModal({ tipo: 'editD', d: abierta })}>Editar salida</button>}
+          <button className="btn" onClick={() => setModal({ tipo: 'nuevaM', therapistId: id, desvinculacionId: salida?.id })}>+ Multa</button>
+        </div>
+        <div className="fd-sub" style={{ marginTop: 6 }}>
+          Liquidación, desvincular y el seguimiento de los pagos están en En vivo → Fantasmeos y salidas.
+        </div>
+      </div>
+      {modal && (
+        <ModalFD
+          modal={modal}
+          therapists={[]}
+          nombreDe={() => therapist.nombre}
+          paisDe={() => therapist.pais}
+          guardando={guardando}
+          error={error}
+          hoy={hoy}
+          email={email}
+          onCerrar={() => {
+            setModal(null);
+            setError(null);
+          }}
+          onGuardar={async (op) => {
+            if (await guardar(op)) setModal(null);
+          }}
+        />
+      )}
     </div>
   );
 }
