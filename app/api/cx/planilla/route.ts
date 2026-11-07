@@ -168,14 +168,33 @@ async function datosPacientes(ids: number[]): Promise<DatosPacientes> {
   });
 }
 
-// Link de WhatsApp solo si el número ya trae código de país (+598…, 00549…,
-// o 11 dígitos o más). Con un número local no sabemos el país del paciente.
-function linkWhatsapp(tel: string): string {
+// Link de WhatsApp. En la base los teléfonos casi siempre están sin código de
+// país, así que se usa el país del psicólogo/a, pero solo si el número tiene
+// la forma de ese país (si no coincide, no se arma link para no abrir un chat
+// equivocado):
+//   UY: 09XXXXXXX (9 dígitos) o 9XXXXXXX (8)        → 598 9XXXXXXX
+//   AR: característica + número, 10 dígitos         → 549 + 10 dígitos
+//       (con 0 adelante, 11 dígitos, se le saca el 0)
+// Con + o 00 adelante se usa tal cual.
+function linkWhatsapp(tel: string, pais: string): string {
   const t = tel.trim();
-  let digitos = t.replace(/\D/g, '');
-  if (t.startsWith('00')) digitos = digitos.slice(2);
-  const internacional = t.startsWith('+') || t.startsWith('00') || digitos.length >= 11;
-  return internacional && digitos.length >= 10 ? `https://wa.me/${digitos}` : '';
+  let d = t.replace(/\D/g, '');
+  if (t.startsWith('+') || t.startsWith('00')) {
+    if (t.startsWith('00')) d = d.slice(2);
+    return d.length >= 10 ? `https://wa.me/${d}` : '';
+  }
+  const p = pais.trim().toUpperCase();
+  if (p === 'UY') {
+    if (d.length === 9 && d.startsWith('09')) return `https://wa.me/598${d.slice(1)}`;
+    if (d.length === 8 && d.startsWith('9')) return `https://wa.me/598${d}`;
+    if (d.length === 11 && d.startsWith('5989')) return `https://wa.me/${d}`;
+  }
+  if (p === 'AR') {
+    if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
+    if (d.length === 10 && !d.startsWith('0')) return `https://wa.me/549${d}`;
+    if (d.length === 13 && d.startsWith('549')) return `https://wa.me/${d}`;
+  }
+  return '';
 }
 
 export async function GET(request: Request) {
@@ -250,7 +269,7 @@ export async function GET(request: Request) {
         paciente_id: Number(a.paciente_id),
         paciente: nombres[String(a.paciente_id)] ?? '',
         telefono: telefonos[String(a.paciente_id)] ?? '',
-        whatsapp: linkWhatsapp(telefonos[String(a.paciente_id)] ?? ''),
+        whatsapp: linkWhatsapp(telefonos[String(a.paciente_id)] ?? '', ps?.pais ?? ''),
         psicologo: ps?.nombre || `Terapeuta #${a.therapist_id}`,
         pais: ps?.pais ?? '',
         regla: a.regla,
