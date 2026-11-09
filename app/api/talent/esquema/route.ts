@@ -33,6 +33,14 @@ export async function GET(request: Request) {
   const email = await autenticarScript(request, admin());
   if (typeof email !== 'string') return email;
 
+  // Por partes: todo junto pasa los 60 s de Vercel (sesiones es enorme).
+  //   (sin parte) esquema y conteos básicos de rating
+  //   ?parte=estados  qué es cada status de rating
+  //   ?parte=motivos  dónde están los motivos (solo nombres) y catálogos chicos
+  //   ?parte=valores&t=tabla&c=columna  frecuencia de cada opción de un motivo
+  const url = new URL(request.url);
+  const parte = url.searchParams.get('parte') ?? '';
+
   try {
     const resultado = await withMysql(async (conn) => {
       const [tablas] = await conn.query<RowDataPacket[]>(
@@ -75,46 +83,56 @@ export async function GET(request: Request) {
               GROUP BY mes ORDER BY mes`,
           );
         }
-        // Para entender qué es cada `status` (0 / 1 / 9) sin mirar ninguna
-        // reseña: cuándo se tocaron por última vez, si el par paciente-psicólogo
-        // tiene otra reseña, y cómo están hoy el psicólogo y el paciente.
-        const [porStatus] = await conn.query<RowDataPacket[]>(
-          `SELECT r.status,
-                  COUNT(*) AS n,
-                  ROUND(AVG(r.rate), 2) AS prom_estrellas,
-                  ROUND(AVG(CHAR_LENGTH(COALESCE(r.comentario, ''))), 0) AS largo_comentario,
-                  MIN(r.modificacion) AS primera_mod,
-                  MAX(r.modificacion) AS ultima_mod,
-                  SUM(r.modificacion >= UTC_TIMESTAMP() - INTERVAL 90 DAY) AS ult_90_dias,
-                  SUM(EXISTS (SELECT 1 FROM rating o WHERE o.idPaciente = r.idPaciente AND o.idTerapeuta = r.idTerapeuta AND o.idRating <> r.idRating)) AS par_con_otra,
-                  SUM(EXISTS (SELECT 1 FROM rating o WHERE o.idPaciente = r.idPaciente AND o.idTerapeuta = r.idTerapeuta AND o.idRating <> r.idRating AND o.status = 1)) AS par_con_otra_status1,
-                  SUM(EXISTS (SELECT 1 FROM rating o WHERE o.idPaciente = r.idPaciente AND o.idTerapeuta = r.idTerapeuta AND o.idRating > r.idRating)) AS par_con_otra_posterior,
-                  SUM(lt.active = 1) AS psico_login_activo,
-                  SUM(lt.id IS NULL) AS psico_sin_login,
-                  SUM(t.seleccionable = 1) AS psico_seleccionable,
-                  SUM(lp.active = 1) AS paciente_login_activo,
-                  SUM(lp.id IS NULL) AS paciente_sin_login,
-                  SUM(p.id_terapeuta = r.idTerapeuta) AS paciente_sigue_con_ese_psico,
-                  SUM(EXISTS (SELECT 1 FROM sesiones s WHERE s.id_paciente = r.idPaciente AND s.id_terapeuta = r.idTerapeuta AND s.realizada = 1)) AS con_sesion_realizada
-             FROM rating r
-             LEFT JOIN login lt ON lt.id = r.idTerapeuta
-             LEFT JOIN terapeutas t ON t.id_login = r.idTerapeuta
-             LEFT JOIN login lp ON lp.id = r.idPaciente
-             LEFT JOIN pacientes p ON p.id_login = r.idPaciente
-            GROUP BY r.status
-            ORDER BY r.status`,
-        );
-        const [statusPorAnio] = await conn.query<RowDataPacket[]>(
-          `SELECT YEAR(modificacion) AS anio, status, COUNT(*) AS n
-             FROM rating GROUP BY anio, status ORDER BY anio, status`,
-        );
-        rating = { columna_fecha: fecha, por_estrellas_y_estado: porEstado, por_mes: porMes, por_status: porStatus, status_por_anio: statusPorAnio };
+        if (parte === 'estados') {
+          // Para entender qué es cada `status` (0 / 1 / 9) sin mirar ninguna
+          // reseña: cuándo se tocaron por última vez, si el par paciente-psicólogo
+          // tiene otra reseña, y cómo están hoy el psicólogo y el paciente.
+          const [porStatus] = await conn.query<RowDataPacket[]>(
+            `SELECT r.status,
+                    COUNT(*) AS n,
+                    ROUND(AVG(r.rate), 2) AS prom_estrellas,
+                    ROUND(AVG(CHAR_LENGTH(COALESCE(r.comentario, ''))), 0) AS largo_comentario,
+                    MIN(r.modificacion) AS primera_mod,
+                    MAX(r.modificacion) AS ultima_mod,
+                    SUM(r.modificacion >= UTC_TIMESTAMP() - INTERVAL 90 DAY) AS ult_90_dias,
+                    SUM(EXISTS (SELECT 1 FROM rating o WHERE o.idPaciente = r.idPaciente AND o.idTerapeuta = r.idTerapeuta AND o.idRating <> r.idRating)) AS par_con_otra,
+                    SUM(EXISTS (SELECT 1 FROM rating o WHERE o.idPaciente = r.idPaciente AND o.idTerapeuta = r.idTerapeuta AND o.idRating <> r.idRating AND o.status = 1)) AS par_con_otra_status1,
+                    SUM(EXISTS (SELECT 1 FROM rating o WHERE o.idPaciente = r.idPaciente AND o.idTerapeuta = r.idTerapeuta AND o.idRating > r.idRating)) AS par_con_otra_posterior,
+                    SUM(lt.active = 1) AS psico_login_activo,
+                    SUM(lt.id IS NULL) AS psico_sin_login,
+                    SUM(t.seleccionable = 1) AS psico_seleccionable,
+                    SUM(lp.active = 1) AS paciente_login_activo,
+                    SUM(lp.id IS NULL) AS paciente_sin_login,
+                    SUM(p.id_terapeuta = r.idTerapeuta) AS paciente_sigue_con_ese_psico,
+                    SUM(sr.id_paciente IS NOT NULL) AS con_sesion_realizada
+               FROM rating r
+               LEFT JOIN login lt ON lt.id = r.idTerapeuta
+               LEFT JOIN terapeutas t ON t.id_login = r.idTerapeuta
+               LEFT JOIN login lp ON lp.id = r.idPaciente
+               LEFT JOIN pacientes p ON p.id_login = r.idPaciente
+               LEFT JOIN (SELECT DISTINCT s.id_paciente, s.id_terapeuta
+                            FROM sesiones s JOIN rating x ON x.idPaciente = s.id_paciente AND x.idTerapeuta = s.id_terapeuta
+                           WHERE s.realizada = 1) sr ON sr.id_paciente = r.idPaciente AND sr.id_terapeuta = r.idTerapeuta
+              GROUP BY r.status
+              ORDER BY r.status`,
+          );
+          const [statusPorAnio] = await conn.query<RowDataPacket[]>(
+            `SELECT YEAR(modificacion) AS anio, status, COUNT(*) AS n
+               FROM rating GROUP BY anio, status ORDER BY anio, status`,
+          );
+          rating = { por_status: porStatus, status_por_anio: statusPorAnio };
+          return { rating };
+        }
+        rating = { columna_fecha: fecha, por_estrellas_y_estado: porEstado, por_mes: porMes };
       }
+      if (parte !== 'motivos' && parte !== 'valores') return { esquema, rating };
+
       // Motivos de cancelación y de pacientes inactivos: dónde están. Columnas
-      // con nombre de motivo/cancelación/baja en cualquier tabla, las tablas que
-      // se llaman así, y para las columnas de opciones fijas (números o textos
-      // cortos) cuántas veces aparece cada valor. Los textos largos (escritos a
-      // mano) no se leen.
+      // con nombre de motivo/cancelación/baja en cualquier tabla y las tablas
+      // que se llaman así (solo nombres). Las tablas chicas con ese nombre
+      // (catálogos tipo id → texto) se leen enteras: son la lista de opciones y
+      // no tienen a nadie. La frecuencia de cada opción se pide de a una columna
+      // (?parte=valores), porque algunas tablas son enormes.
       const PATRON_MOTIVOS = '(motivo|razon|reason|cancel|baja|inactiv|desactiv|encuesta)';
       const [colsMotivo] = await conn.query<RowDataPacket[]>(
         `SELECT c.TABLE_NAME AS t, c.COLUMN_NAME AS c, c.DATA_TYPE AS tipo, c.CHARACTER_MAXIMUM_LENGTH AS largo, tb.TABLE_ROWS AS filas
@@ -125,27 +143,25 @@ export async function GET(request: Request) {
           ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION`,
         [PATRON_MOTIVOS, PATRON_MOTIVOS],
       );
-      const motivos: Record<string, unknown>[] = [];
-      let leidas = 0;
-      for (const col of colsMotivo) {
-        const t = String(col.t);
-        const c = String(col.c);
-        const nombreMotivo = new RegExp(PATRON_MOTIVOS, 'i').test(c);
+
+      if (parte === 'valores') {
+        const t = url.searchParams.get('t') ?? '';
+        const c = url.searchParams.get('c') ?? '';
+        // Solo columnas que salieron en la lista de arriba, con nombre de motivo
+        // y de opciones fijas (números o textos cortos): nada escrito a mano.
+        const col = colsMotivo.find((x) => String(x.t) === t && String(x.c) === c);
         const opcionFija =
-          ['tinyint', 'smallint', 'int', 'enum'].includes(String(col.tipo)) ||
-          (['varchar', 'char'].includes(String(col.tipo)) && Number(col.largo) <= 60);
-        const fila: Record<string, unknown> = { tabla: t, columna: c, tipo: col.tipo, largo: col.largo, filas_tabla: col.filas };
-        if (nombreMotivo && opcionFija && leidas < 15 && /^[A-Za-z0-9_]+$/.test(t) && /^[A-Za-z0-9_]+$/.test(c)) {
-          leidas++;
-          const [valores] = await conn.query<RowDataPacket[]>(
-            `SELECT \`${c}\` AS valor, COUNT(*) AS n FROM \`${t}\` GROUP BY \`${c}\` ORDER BY n DESC LIMIT 20`,
-          );
-          fila.valores = valores;
-        }
-        motivos.push(fila);
+          col &&
+          (['tinyint', 'smallint', 'int', 'enum'].includes(String(col.tipo)) ||
+            (['varchar', 'char'].includes(String(col.tipo)) && Number(col.largo) <= 60));
+        if (!col || !opcionFija || !new RegExp(PATRON_MOTIVOS, 'i').test(c)) return { error: 'Columna no permitida' };
+        const [valores] = await conn.query<RowDataPacket[]>(
+          `SELECT \`${c}\` AS valor, COUNT(*) AS n FROM \`${t}\` GROUP BY \`${c}\` ORDER BY n DESC LIMIT 25`,
+        );
+        return { tabla: t, columna: c, valores };
       }
-      // Tablas chicas que se llaman como motivos (catálogos tipo id → texto):
-      // se leen enteras, porque son la lista de opciones y no tienen a nadie.
+
+      const motivos = colsMotivo.map((x) => ({ tabla: x.t, columna: x.c, tipo: x.tipo, largo: x.largo, filas_tabla: x.filas }));
       const catalogos: Record<string, unknown> = {};
       const tablasMotivo = [...new Set(colsMotivo.filter((x) => new RegExp(PATRON_MOTIVOS, 'i').test(String(x.t))).map((x) => String(x.t)))];
       for (const t of tablasMotivo.slice(0, 10)) {
@@ -154,7 +170,7 @@ export async function GET(request: Request) {
         const [rows] = await conn.query<RowDataPacket[]>(`SELECT * FROM \`${t}\` LIMIT 100`);
         catalogos[t] = rows;
       }
-      return { esquema, rating, motivos, catalogos };
+      return { motivos, catalogos };
     });
 
     console.log('[talent/esquema]', email);
