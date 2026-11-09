@@ -7,7 +7,8 @@ import type { PaisFilter, TherapistView } from '@/lib/types';
 /**
  * Solapa En vivo → Reseñas (mockup de Talent).
  *
- * Las reseñas se leen en el momento de la plataforma (app/api/en-vivo/resenas).
+ * Las reseñas se leen en el momento de la plataforma (app/api/en-vivo/resenas),
+ * con el nombre del paciente.
  * Lo que hace el equipo con cada una queda en `resenas_revision`.
  *
  * - Para mirar: 3 estrellas o menos. Una reseña baja no es un juicio sobre el
@@ -22,6 +23,7 @@ type Contexto = { sesiones: number; ultima: string | null; proxima: string | nul
 type Resena = {
   id: number;
   paciente_id: number;
+  paciente: string;
   therapist_id: string;
   pais: string;
   estrellas: number;
@@ -132,9 +134,31 @@ export function ResenasVivo({
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState<number | null>(null);
   const [verRevisadas, setVerRevisadas] = useState(false);
+  // Psicólogos/as que no están en la Matrix del mes (por ejemplo, dados de
+  // baja): el nombre sale de `therapists`, como en Fantasmeos y salidas.
+  const [ters, setTers] = useState<Map<string, string>>(new Map());
 
   const matrixPor = useMemo(() => new Map(therapists.map((t) => [t.id, t])), [therapists]);
-  const nombreDe = useCallback((id: string) => matrixPor.get(id)?.nombre ?? `Terapeuta #${id}`, [matrixPor]);
+  const nombreDe = useCallback(
+    (id: string) => matrixPor.get(id)?.nombre ?? ters.get(id) ?? `Terapeuta #${id}`,
+    [matrixPor, ters],
+  );
+
+  useEffect(() => {
+    if (!datos) return;
+    const faltan = [...new Set([...datos.resenas.map((r) => r.therapist_id), ...datos.promedios.map((p) => p.therapist_id)])].filter(
+      (id) => !matrixPor.has(id),
+    );
+    if (faltan.length === 0) return;
+    (async () => {
+      const m = new Map<string, string>();
+      for (let i = 0; i < faltan.length; i += 200) {
+        const { data } = await getSupabase().from('therapists').select('id,nombre').in('id', faltan.slice(i, i + 200));
+        for (const t of (data ?? []) as { id: string; nombre: string }[]) m.set(String(t.id), t.nombre);
+      }
+      setTers(m);
+    })();
+  }, [datos, matrixPor]);
 
   const cargarRevisiones = useCallback(async () => {
     const { data, error: e } = await getSupabase().from('resenas_revision').select('*');
@@ -242,7 +266,7 @@ export function ResenasVivo({
         </div>
         {r.comentario ? <div className="rs-txt">“{r.comentario}”</div> : <div className="rs-txt rs-meta">Sin comentario</div>}
         <div className="rs-meta">
-          Paciente #{r.paciente_id}
+          {r.paciente ? `${r.paciente} · #${r.paciente_id}` : `Paciente #${r.paciente_id}`}
           {tipo === 'mirar' && contextoTexto(r) && ` · ${contextoTexto(r)}`}
         </div>
         <div className="rs-meta">
@@ -373,8 +397,8 @@ export function ResenasVivo({
         </table>
       </div>
       <div className="rs-sub" style={{ marginTop: 6 }}>
-        Las reseñas bajas se muestran aunque el psicólogo/a esté en ventana de respeto. El nombre del paciente no se muestra: su
-        número alcanza para buscarlo en el back.
+        Las reseñas bajas se muestran aunque el psicólogo/a esté en ventana de respeto. El nombre del paciente se lee en el momento
+        de la plataforma y no se guarda en el dashboard.
       </div>
     </>
   );
