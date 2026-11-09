@@ -81,13 +81,19 @@ export async function GET(request: Request) {
       const [filas] = await conn.query<RowDataPacket[]>(
         `SELECT e.idEncuestaMotivo AS id, e.idLogin AS login_id, l.tipo AS tipo_login, l.paisDominio AS pais,
                 e.tipo, e.accion, e.motivo, e.motivoTitulo AS titulo, e.otroMotivoTxt AS texto,
-                CASE WHEN JSON_VALID(e.data) THEN JSON_UNQUOTE(JSON_EXTRACT(e.data, '$.idPaciente')) END AS paciente_id,
+                -- El paciente sale de la sesión (sesiones.id_paciente es el login del
+                -- paciente, igual que en el resto del dashboard). data.idPaciente queda
+                -- de respaldo por si la sesión no está.
+                COALESCE(s.id_paciente,
+                  CASE WHEN JSON_VALID(e.data) THEN JSON_UNQUOTE(JSON_EXTRACT(e.data, '$.idPaciente')) END) AS paciente_id,
                 CASE WHEN JSON_VALID(e.data) THEN JSON_UNQUOTE(JSON_EXTRACT(e.data, '$.idSesion')) END AS sesion_id,
                 CASE WHEN JSON_VALID(e.data) THEN JSON_UNQUOTE(JSON_EXTRACT(e.data, '$.fecha')) END AS sesion_fecha,
                 CASE WHEN JSON_VALID(e.data) THEN JSON_UNQUOTE(JSON_EXTRACT(e.data, '$.horaIni')) END AS sesion_hora,
                 e.fecha
            FROM encuesta_motivos e
            LEFT JOIN login l ON l.id = e.idLogin
+           LEFT JOIN sesiones s
+                  ON JSON_VALID(e.data) AND s.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(e.data, '$.idSesion')) AS UNSIGNED)
           WHERE e.fecha >= UTC_TIMESTAMP() - INTERVAL ${DIAS} DAY
           ORDER BY e.fecha DESC`,
       );
