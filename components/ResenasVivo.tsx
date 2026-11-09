@@ -7,7 +7,8 @@ import type { PaisFilter, TherapistView } from '@/lib/types';
 /**
  * Solapa En vivo → Reseñas (mockup de Talent).
  *
- * Las reseñas se leen en el momento de la plataforma (app/api/en-vivo/resenas).
+ * Las reseñas se leen en el momento de la plataforma (app/api/en-vivo/resenas),
+ * con el nombre del paciente.
  * Lo que hace el equipo con cada una queda en `resenas_revision`.
  *
  * - Para mirar: 3 estrellas o menos. Una reseña baja no es un juicio sobre el
@@ -22,6 +23,7 @@ type Contexto = { sesiones: number; ultima: string | null; proxima: string | nul
 type Resena = {
   id: number;
   paciente_id: number;
+  paciente: string;
   therapist_id: string;
   pais: string;
   estrellas: number;
@@ -132,9 +134,37 @@ export function ResenasVivo({
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState<number | null>(null);
   const [verRevisadas, setVerRevisadas] = useState(false);
+  // Psicólogos/as que no están en la Matrix del mes (por ejemplo, dados de
+  // baja): el nombre sale de `therapists`, como en Fantasmeos y salidas.
+  const [ters, setTers] = useState<Map<string, { nombre: string; activo: boolean }>>(new Map());
 
   const matrixPor = useMemo(() => new Map(therapists.map((t) => [t.id, t])), [therapists]);
-  const nombreDe = useCallback((id: string) => matrixPor.get(id)?.nombre ?? `Terapeuta #${id}`, [matrixPor]);
+  const nombreDe = useCallback(
+    (id: string) => matrixPor.get(id)?.nombre ?? ters.get(id)?.nombre ?? `Terapeuta #${id}`,
+    [matrixPor, ters],
+  );
+  // Los que ya no están en la plataforma se marcan en rojo (pedido de Talent).
+  const estiloPs = useCallback(
+    (id: string) =>
+      ters.get(id)?.activo === false ? { color: 'var(--r)', title: 'Ya no está en la plataforma' } : { color: undefined, title: undefined },
+    [ters],
+  );
+
+  useEffect(() => {
+    if (!datos) return;
+    const faltan = [...new Set([...datos.resenas.map((r) => r.therapist_id), ...datos.promedios.map((p) => p.therapist_id)])].filter(
+      (id) => !matrixPor.has(id),
+    );
+    if (faltan.length === 0) return;
+    (async () => {
+      const m = new Map<string, { nombre: string; activo: boolean }>();
+      for (let i = 0; i < faltan.length; i += 200) {
+        const { data } = await getSupabase().from('therapists').select('id,nombre,activo').in('id', faltan.slice(i, i + 200));
+        for (const t of (data ?? []) as { id: string; nombre: string; activo: boolean }[]) m.set(String(t.id), { nombre: t.nombre, activo: t.activo });
+      }
+      setTers(m);
+    })();
+  }, [datos, matrixPor]);
 
   const cargarRevisiones = useCallback(async () => {
     const { data, error: e } = await getSupabase().from('resenas_revision').select('*');
@@ -237,12 +267,14 @@ export function ResenasVivo({
           <span className="rs-meta">{ddmm(r.fecha)}</span>
         </div>
         <div style={{ marginTop: 4 }}>
-          <span className="rs-ps" onClick={() => mx && onRowClick(mx)}>{nombreDe(r.therapist_id)}</span>{' '}
+          <span className="rs-ps" style={{ color: estiloPs(r.therapist_id).color }} title={estiloPs(r.therapist_id).title} onClick={() => mx && onRowClick(mx)}>
+            {nombreDe(r.therapist_id)}
+          </span>{' '}
           <span className={`b ${r.pais === 'AR' ? 'bar' : 'buy'}`}>{r.pais}</span>
         </div>
         {r.comentario ? <div className="rs-txt">“{r.comentario}”</div> : <div className="rs-txt rs-meta">Sin comentario</div>}
         <div className="rs-meta">
-          Paciente #{r.paciente_id}
+          {r.paciente ? `${r.paciente} · #${r.paciente_id}` : `Paciente #${r.paciente_id}`}
           {tipo === 'mirar' && contextoTexto(r) && ` · ${contextoTexto(r)}`}
         </div>
         <div className="rs-meta">
@@ -360,7 +392,11 @@ export function ResenasVivo({
               const mx = matrixPor.get(c.therapist_id);
               return (
                 <tr key={c.therapist_id}>
-                  <td className="c-n"><span className="rs-ps" onClick={() => mx && onRowClick(mx)}>{nombreDe(c.therapist_id)}</span></td>
+                  <td className="c-n">
+                    <span className="rs-ps" style={{ color: estiloPs(c.therapist_id).color }} title={estiloPs(c.therapist_id).title} onClick={() => mx && onRowClick(mx)}>
+                      {nombreDe(c.therapist_id)}
+                    </span>
+                  </td>
                   <td className="c-p"><span className={`b ${c.pais === 'AR' ? 'bar' : 'buy'}`}>{c.pais}</span></td>
                   <td className="tm">{coma(c.antes)} ★</td>
                   <td className="tm">{coma(c.ahora)} ★</td>
@@ -373,8 +409,8 @@ export function ResenasVivo({
         </table>
       </div>
       <div className="rs-sub" style={{ marginTop: 6 }}>
-        Las reseñas bajas se muestran aunque el psicólogo/a esté en ventana de respeto. El nombre del paciente no se muestra: su
-        número alcanza para buscarlo en el back.
+        Las reseñas bajas se muestran aunque el psicólogo/a esté en ventana de respeto. En rojo, los psicólogos/as que ya no están
+        en la plataforma. El nombre del paciente se lee en el momento de la plataforma y no se guarda en el dashboard.
       </div>
     </>
   );

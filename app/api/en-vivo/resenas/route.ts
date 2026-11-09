@@ -19,8 +19,8 @@ export const maxDuration = 60;
  *   sesiones es aproximada.
  * - Promedios: solo publicadas, que es lo que ve el paciente en el perfil.
  *
- * El nombre del paciente no sale de acá: se muestra su número, igual que en
- * el mockup. El comentario sí, porque es lo que hay que mirar.
+ * El nombre del paciente se lee acá, en el momento (igual que en Alertas), solo
+ * para las reseñas de las listas, y no se guarda en ningún lado.
  *
  * Lo que hace el equipo con cada reseña (revisada, nota, ticker) vive en
  * Supabase (`resenas_revision`), no acá.
@@ -76,6 +76,29 @@ export async function GET(request: Request) {
           ORDER BY r.modificacion DESC`,
       );
 
+      // Nombres de los pacientes de las listas. Igual que /api/en-vivo/pacientes:
+      // el apellido puede no existir o llamarse distinto.
+      const nombres: Record<string, string> = {};
+      const idsPac = [...new Set(filas.map((f) => Number(f.paciente_id)))];
+      if (idsPac.length) {
+        const [cols] = await conn.query<RowDataPacket[]>(
+          `SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pacientes'
+              AND COLUMN_NAME IN ('apellido', 'apellidos')`,
+        );
+        const apellido = cols[0]?.c ? String(cols[0].c) : null;
+        const [rows] = await conn.query<RowDataPacket[]>(
+          `SELECT id_login AS id, nombre${apellido ? `, ${apellido} AS apellido` : ''}
+             FROM pacientes
+            WHERE id_login IN (?)`,
+          [idsPac],
+        );
+        for (const r of rows) {
+          const completo = [r.nombre, r.apellido].map((s) => (s == null ? '' : String(s).trim())).filter(Boolean).join(' ');
+          if (completo) nombres[String(r.id)] = completo;
+        }
+      }
+
       // Contexto de las bajas respecto de las sesiones de ese paciente con
       // ese psicólogo/a: cuántas tuvo hasta la reseña, la última antes, y si
       // tiene una próxima agendada.
@@ -119,6 +142,7 @@ export async function GET(request: Request) {
         resenas: filas.map((f) => ({
           id: Number(f.id),
           paciente_id: Number(f.paciente_id),
+          paciente: nombres[String(f.paciente_id)] ?? '',
           therapist_id: String(f.therapist_id),
           pais: f.pais,
           estrellas: Number(f.estrellas),
