@@ -44,6 +44,9 @@ const ESTILOS = `
 .mv-ps:hover { color:var(--ac); text-decoration:underline; }
 .mv-bar { height:6px; background:var(--ac); border-radius:3px; opacity:.7; }
 .mv-txt { font-size:11px; color:var(--t2); max-width:360px; white-space:normal; line-height:1.35; }
+.mv-fila { cursor:pointer; }
+.mv-fila:hover td { background:rgba(79,142,247,.06); }
+.mv-hd, .ks { scroll-margin-top:80px; }
 `;
 
 function diaLocal(d: Date): string {
@@ -70,6 +73,10 @@ export function MotivosVivo({
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [ters, setTers] = useState<Map<string, { nombre: string; activo: boolean }>>(new Map());
+  // Filtros del detalle: se eligen tocando un cuadro, un motivo, un psicólogo/a o un paciente.
+  const [filtroPs, setFiltroPs] = useState<string | null>(null);
+  const [filtroMotivo, setFiltroMotivo] = useState<string | null>(null);
+  const [filtroPac, setFiltroPac] = useState<string | null>(null);
 
   const matrixPor = useMemo(() => new Map(therapists.map((t) => [t.id, t])), [therapists]);
   const nombreDe = useCallback(
@@ -124,30 +131,81 @@ export function MotivosVivo({
   }, [visibles]);
 
   const porPsico = useMemo(() => {
-    const m = new Map<string, { n: number; motivos: Map<string, number> }>();
+    const m = new Map<string, { n: number; motivos: Map<string, number>; pacientes: Map<string, number> }>();
     for (const f of visibles) {
-      const x = m.get(f.login_id) ?? { n: 0, motivos: new Map<string, number>() };
+      const x = m.get(f.login_id) ?? { n: 0, motivos: new Map<string, number>(), pacientes: new Map<string, number>() };
       x.n++;
       x.motivos.set(f.titulo || f.motivo, (x.motivos.get(f.titulo || f.motivo) ?? 0) + 1);
+      if (f.paciente_id) x.pacientes.set(f.paciente_id, (x.pacientes.get(f.paciente_id) ?? 0) + 1);
       m.set(f.login_id, x);
     }
     return [...m.entries()].sort((a, b) => b[1].n - a[1].n);
   }, [visibles]);
+
+  // Cuántas veces aparece cada paciente con su psicólogo/a: así se ve si a un
+  // mismo paciente le cancelaron varias veces.
+  const vecesPar = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const f of visibles) if (f.paciente_id) m.set(`${f.login_id}|${f.paciente_id}`, (m.get(`${f.login_id}|${f.paciente_id}`) ?? 0) + 1);
+    return m;
+  }, [visibles]);
+
+  const detalle = useMemo(() => {
+    const out = visibles.filter(
+      (f) =>
+        (!filtroPs || f.login_id === filtroPs) &&
+        (!filtroMotivo || (f.titulo || f.motivo) === filtroMotivo) &&
+        (!filtroPac || f.paciente_id === filtroPac),
+    );
+    // Con un psicólogo/a elegido, agrupado por paciente; si no, lo último primero.
+    return filtroPs
+      ? out.sort(
+          (a, b) =>
+            (vecesPar.get(`${b.login_id}|${b.paciente_id}`) ?? 0) - (vecesPar.get(`${a.login_id}|${a.paciente_id}`) ?? 0) ||
+            String(a.paciente_id).localeCompare(String(b.paciente_id)) ||
+            b.fecha.localeCompare(a.fecha),
+        )
+      : out.sort((a, b) => b.fecha.localeCompare(a.fecha));
+  }, [visibles, filtroPs, filtroMotivo, filtroPac, vecesPar]);
 
   if (cargando) return <div className="loading-wrap">Cargando motivos…</div>;
 
   const max = porMotivo[0]?.[1] ?? 1;
   const total = visibles.length;
   const esCancel = clase === 'cancelacion';
+  const hayFiltro = Boolean(filtroPs || filtroMotivo || filtroPac);
+  const irA = (id: string) => setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  const filtrar = (ps: string | null, motivo: string | null, pac: string | null) => {
+    setFiltroPs(ps);
+    setFiltroMotivo(motivo);
+    setFiltroPac(pac);
+    irA('mv-detalle');
+  };
+  const cambiarClase = (c: Clase) => {
+    setClase(c);
+    setFiltroPs(null);
+    setFiltroMotivo(null);
+    setFiltroPac(null);
+  };
 
-  const ps = (id: string) => {
+  const ps = (id: string, clickable = true) => {
     const mx = matrixPor.get(id);
     return (
-      <span className={mx ? 'mv-ps' : ''} style={{ color: rojo(id) }} title={rojo(id) ? 'Ya no está en la plataforma' : undefined} onClick={() => mx && onRowClick(mx)}>
+      <span
+        className={clickable && mx ? 'mv-ps' : ''}
+        style={{ color: rojo(id) }}
+        title={rojo(id) ? 'Ya no está en la plataforma' : undefined}
+        onClick={(e) => {
+          if (!clickable || !mx) return;
+          e.stopPropagation();
+          onRowClick(mx);
+        }}
+      >
         {nombreDe(id)}
       </span>
     );
   };
+  const nombrePac = (f: Fila) => f.paciente || (f.paciente_id ? `Paciente #${f.paciente_id}` : '—');
 
   return (
     <>
@@ -155,26 +213,27 @@ export function MotivosVivo({
       {error && <div className="mv-err">{error}</div>}
 
       <div className="mv-bt">
-        <button className={`btn ${esCancel ? 'on' : ''}`} onClick={() => setClase('cancelacion')}>Cancelaciones ({cuenta.cancelacion})</button>
-        <button className={`btn ${!esCancel ? 'on' : ''}`} onClick={() => setClase('inactividad')}>Pacientes inactivos ({cuenta.inactividad})</button>
+        <button className={`btn ${esCancel ? 'on' : ''}`} onClick={() => cambiarClase('cancelacion')}>Cancelaciones ({cuenta.cancelacion})</button>
+        <button className={`btn ${!esCancel ? 'on' : ''}`} onClick={() => cambiarClase('inactividad')}>Pacientes inactivos ({cuenta.inactividad})</button>
       </div>
       <div className="mv-sub">
         {esCancel
           ? 'Lo que contesta el psicólogo/a cuando cancela o mueve una sesión.'
           : 'Lo que contesta el psicólogo/a cuando pasa a un paciente a inactivos ("Motivo de inactividad").'}{' '}
-        Las encuestas existen desde el {ddmm(desde ?? '2026-11-05')}: antes no hay datos.
+        Las encuestas existen desde el {ddmm(desde ?? '2026-11-05')}: antes no hay datos. Tocá un motivo o un psicólogo/a para ver
+        sus {esCancel ? 'cancelaciones' : 'pacientes'} abajo.
       </div>
 
       <div className="ks">
-        <div className="k" style={{ cursor: 'default' }}>
+        <div className="k" onClick={() => filtrar(null, null, null)} title="Ver todas en el detalle">
           <div className="kv">{total}</div>
           <div className="kl">{esCancel ? 'Cancelaciones con motivo' : 'Pacientes pasados a inactivos'}</div>
         </div>
-        <div className="k" style={{ cursor: 'default' }}>
+        <div className="k" onClick={() => irA('mv-psicos')} title="Ver por psicólogo/a">
           <div className="kv">{porPsico.length}</div>
           <div className="kl">Psicólogos/as</div>
         </div>
-        <div className="k" style={{ cursor: 'default' }}>
+        <div className="k" onClick={() => porMotivo[0] && filtrar(null, porMotivo[0][0], null)} title="Ver las de este motivo">
           <div className="kv" style={{ fontSize: 15 }}>{porMotivo[0]?.[0] ?? '—'}</div>
           <div className="kl">Motivo más elegido{porMotivo[0] ? ` · ${Math.round((porMotivo[0][1] / total) * 100)}%` : ''}</div>
         </div>
@@ -201,7 +260,7 @@ export function MotivosVivo({
               </thead>
               <tbody>
                 {porMotivo.map(([m, n]) => (
-                  <tr key={m}>
+                  <tr key={m} className="mv-fila" onClick={() => filtrar(null, m, null)} title="Ver las de este motivo">
                     <td>{m}</td>
                     <td className="tm">{n}</td>
                     <td className="tm">{Math.round((n / total) * 100)}%</td>
@@ -212,31 +271,47 @@ export function MotivosVivo({
             </table>
           </div>
 
-          <div className="mv-hd"><h3>Por psicólogo/a</h3></div>
+          <div className="mv-hd" id="mv-psicos"><h3>Por psicólogo/a</h3></div>
           <div className="tw">
             <table>
               <thead>
                 <tr>
                   <th className="c-n">Psicólogo/a</th>
                   <th>{esCancel ? 'Cancelaciones' : 'Pacientes'}</th>
+                  {esCancel && <th title="Pacientes distintos a los que les canceló">Pacientes</th>}
+                  {esCancel && <th title="Pacientes con 2 cancelaciones o más">Repetidos</th>}
                   <th>Motivos</th>
                 </tr>
               </thead>
               <tbody>
-                {porPsico.map(([id, x]) => (
-                  <tr key={id}>
-                    <td className="c-n">{ps(id)}</td>
-                    <td className="tm">{x.n}</td>
-                    <td className="mv-txt">
-                      {[...x.motivos.entries()].sort((a, b) => b[1] - a[1]).map(([m, n]) => `${m} (${n})`).join(' · ')}
-                    </td>
-                  </tr>
-                ))}
+                {porPsico.map(([id, x]) => {
+                  const repetidos = [...x.pacientes.values()].filter((n) => n >= 2).length;
+                  return (
+                    <tr key={id} className="mv-fila" onClick={() => filtrar(id, null, null)} title="Ver sus cancelaciones abajo">
+                      <td className="c-n">{ps(id, false)}</td>
+                      <td className="tm">{x.n}</td>
+                      {esCancel && <td className="tm">{x.pacientes.size}</td>}
+                      {esCancel && <td className="tm" style={{ color: repetidos ? 'var(--am)' : undefined }}>{repetidos || '—'}</td>}
+                      <td className="mv-txt">
+                        {[...x.motivos.entries()].sort((a, b) => b[1] - a[1]).map(([m, n]) => `${m} (${n})`).join(' · ')}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
-          <div className="mv-hd"><h3>Detalle</h3></div>
+          <div className="mv-hd" id="mv-detalle">
+            <h3>
+              Detalle
+              {filtroPs && <> · {ps(filtroPs)}</>}
+              {filtroPac && <> · {nombrePac(detalle[0] ?? ({ paciente: '', paciente_id: filtroPac } as Fila))}</>}
+              {filtroMotivo && <> · {filtroMotivo}</>}
+              <span className="mv-sub" style={{ marginLeft: 6 }}>({detalle.length})</span>
+            </h3>
+            {hayFiltro && <button className="btn" onClick={() => filtrar(null, null, null)}>Ver todas</button>}
+          </div>
           <div className="tw">
             <table>
               <thead>
@@ -244,38 +319,53 @@ export function MotivosVivo({
                   <th title="Cuándo contestó el psicólogo/a">Fecha</th>
                   <th className="c-n">Psicólogo/a</th>
                   <th>Paciente</th>
+                  {esCancel && <th title="Cancelaciones de este paciente con este psicólogo/a">Veces</th>}
                   {esCancel && <th>Sesión</th>}
                   <th>Motivo</th>
                   <th>Detalle</th>
                 </tr>
               </thead>
               <tbody>
-                {visibles.map((f) => (
-                  <tr key={f.id}>
-                    <td className="tm">{ddmm(f.fecha)}</td>
-                    <td className="c-n">{ps(f.login_id)}</td>
-                    <td>
-                      {f.paciente || (f.paciente_id ? 'Paciente' : '—')}
-                      {f.paciente_id && <span className="tm" style={{ color: 'var(--t3)' }}> #{f.paciente_id}</span>}
-                    </td>
-                    {esCancel && (
-                      <td className="tm">
-                        {ddmm(f.sesion_fecha)}
-                        {f.sesion_hora ? ` ${f.sesion_hora.slice(0, 5)}` : ''}
+                {detalle.map((f) => {
+                  const veces = f.paciente_id ? vecesPar.get(`${f.login_id}|${f.paciente_id}`) ?? 1 : 1;
+                  return (
+                    <tr key={f.id}>
+                      <td className="tm">{ddmm(f.fecha)}</td>
+                      <td className="c-n">
+                        <span className="mv-ps" onClick={() => filtrar(f.login_id, null, null)} title="Ver solo sus cancelaciones">
+                          {nombreDe(f.login_id)}
+                        </span>
                       </td>
-                    )}
-                    <td>{f.titulo || f.motivo}</td>
-                    <td className="mv-txt">{f.texto || '—'}</td>
-                  </tr>
-                ))}
+                      <td>
+                        {f.paciente_id ? (
+                          <span className="mv-ps" onClick={() => filtrar(f.login_id, null, f.paciente_id)} title="Ver solo las de este paciente">
+                            {nombrePac(f)}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                        {f.paciente && f.paciente_id && <span className="tm" style={{ color: 'var(--t3)' }}> #{f.paciente_id}</span>}
+                      </td>
+                      {esCancel && <td className="tm" style={{ color: veces >= 2 ? 'var(--am)' : undefined, fontWeight: veces >= 2 ? 600 : undefined }}>{veces}</td>}
+                      {esCancel && (
+                        <td className="tm">
+                          {ddmm(f.sesion_fecha)}
+                          {f.sesion_hora ? ` ${f.sesion_hora.slice(0, 5)}` : ''}
+                        </td>
+                      )}
+                      <td>{f.titulo || f.motivo}</td>
+                      <td className="mv-txt">{f.texto || '—'}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </>
       )}
       <div className="mv-sub" style={{ marginTop: 6 }}>
-        En rojo, los psicólogos/as que ya no están en la plataforma. El nombre del paciente se lee en el momento de la plataforma y no
-        se guarda en el dashboard.
+        &ldquo;Veces&rdquo; en naranja: al mismo paciente le cancelaron 2 veces o más. En rojo, los psicólogos/as que ya no están en la
+        plataforma. El nombre del paciente se lee en el momento de la plataforma y no se guarda en el dashboard.
       </div>
     </>
   );
