@@ -47,7 +47,24 @@ const ESTILOS = `
 .mv-fila { cursor:pointer; }
 .mv-fila:hover td { background:rgba(79,142,247,.06); }
 .mv-hd, .ks { scroll-margin-top:80px; }
+.mv-th { cursor:pointer; user-select:none; white-space:nowrap; }
+.mv-th:hover { color:var(--t); }
+.mv-vz { cursor:pointer; }
+.mv-vz:hover { text-decoration:underline; }
 `;
+
+// Columnas que se pueden ordenar tocando el encabezado.
+type ColDet = 'fecha' | 'psico' | 'paciente' | 'veces' | 'sesion' | 'motivo';
+type ColPs = 'nombre' | 'n' | 'pacientes' | 'repetidos';
+type Orden<C> = { col: C; asc: boolean };
+// Texto de A a Z; números y fechas, de mayor a menor (lo que se suele querer ver primero).
+const ASC_PRIMERO = new Set<string>(['psico', 'paciente', 'motivo', 'nombre']);
+
+const nombrePac = (f: Pick<Fila, 'paciente' | 'paciente_id'>) => f.paciente || (f.paciente_id ? `Paciente #${f.paciente_id}` : '—');
+
+function cmp(a: string | number, b: string | number): number {
+  return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b), 'es', { sensitivity: 'base' });
+}
 
 function diaLocal(d: Date): string {
   return new Date(d.getTime() - 3 * 3_600_000).toISOString().slice(0, 10);
@@ -77,6 +94,10 @@ export function MotivosVivo({
   const [filtroPs, setFiltroPs] = useState<string | null>(null);
   const [filtroMotivo, setFiltroMotivo] = useState<string | null>(null);
   const [filtroPac, setFiltroPac] = useState<string | null>(null);
+  // Orden elegido tocando un encabezado. Sin elegir: el detalle va por fecha
+  // (o agrupado por paciente si hay un psicólogo/a elegido).
+  const [ordDet, setOrdDet] = useState<Orden<ColDet> | null>(null);
+  const [ordPs, setOrdPs] = useState<Orden<ColPs>>({ col: 'n', asc: false });
 
   const matrixPor = useMemo(() => new Map(therapists.map((t) => [t.id, t])), [therapists]);
   const nombreDe = useCallback(
@@ -139,7 +160,7 @@ export function MotivosVivo({
       if (f.paciente_id) x.pacientes.set(f.paciente_id, (x.pacientes.get(f.paciente_id) ?? 0) + 1);
       m.set(f.login_id, x);
     }
-    return [...m.entries()].sort((a, b) => b[1].n - a[1].n);
+    return [...m.entries()];
   }, [visibles]);
 
   // Cuántas veces aparece cada paciente con su psicólogo/a: así se ve si a un
@@ -157,6 +178,27 @@ export function MotivosVivo({
         (!filtroMotivo || (f.titulo || f.motivo) === filtroMotivo) &&
         (!filtroPac || f.paciente_id === filtroPac),
     );
+    const veces = (f: Fila) => vecesPar.get(`${f.login_id}|${f.paciente_id}`) ?? 1;
+    if (ordDet) {
+      const clave = (f: Fila): string | number => {
+        switch (ordDet.col) {
+          case 'fecha': return f.fecha;
+          case 'psico': return nombreDe(f.login_id);
+          case 'paciente': return nombrePac(f);
+          case 'veces': return veces(f);
+          case 'sesion': return `${f.sesion_fecha ?? ''} ${f.sesion_hora ?? ''}`;
+          case 'motivo': return f.titulo || f.motivo;
+        }
+      };
+      // Desempate: mismo psicólogo/a y paciente juntos, lo último primero.
+      return out.sort(
+        (a, b) =>
+          (ordDet.asc ? 1 : -1) * cmp(clave(a), clave(b)) ||
+          cmp(nombreDe(a.login_id), nombreDe(b.login_id)) ||
+          String(a.paciente_id).localeCompare(String(b.paciente_id)) ||
+          b.fecha.localeCompare(a.fecha),
+      );
+    }
     // Con un psicólogo/a elegido, agrupado por paciente; si no, lo último primero.
     return filtroPs
       ? out.sort(
@@ -166,7 +208,19 @@ export function MotivosVivo({
             b.fecha.localeCompare(a.fecha),
         )
       : out.sort((a, b) => b.fecha.localeCompare(a.fecha));
-  }, [visibles, filtroPs, filtroMotivo, filtroPac, vecesPar]);
+  }, [visibles, filtroPs, filtroMotivo, filtroPac, vecesPar, ordDet, nombreDe]);
+
+  const psicosOrdenados = useMemo(() => {
+    const clave = ([id, x]: (typeof porPsico)[number]): string | number => {
+      switch (ordPs.col) {
+        case 'nombre': return nombreDe(id);
+        case 'n': return x.n;
+        case 'pacientes': return x.pacientes.size;
+        case 'repetidos': return [...x.pacientes.values()].filter((n) => n >= 2).length;
+      }
+    };
+    return [...porPsico].sort((a, b) => (ordPs.asc ? 1 : -1) * cmp(clave(a), clave(b)) || b[1].n - a[1].n);
+  }, [porPsico, ordPs, nombreDe]);
 
   if (cargando) return <div className="loading-wrap">Cargando motivos…</div>;
 
@@ -205,7 +259,27 @@ export function MotivosVivo({
       </span>
     );
   };
-  const nombrePac = (f: Fila) => f.paciente || (f.paciente_id ? `Paciente #${f.paciente_id}` : '—');
+  // Encabezado que ordena: tocarlo de nuevo invierte el orden.
+  const th = <C extends string>(
+    orden: Orden<C> | null,
+    setOrden: (o: Orden<C>) => void,
+    col: C,
+    label: string,
+    extra: { title?: string; className?: string } = {},
+  ) => {
+    const activo = orden?.col === col;
+    return (
+      <th
+        className={`mv-th ${extra.className ?? ''}`}
+        title={`${extra.title ? `${extra.title}. ` : ''}Tocá para ordenar`}
+        onClick={() => setOrden({ col, asc: activo ? !orden!.asc : ASC_PRIMERO.has(col) })}
+        style={activo ? { color: 'var(--t)' } : undefined}
+      >
+        {label}
+        {activo ? (orden!.asc ? ' ▲' : ' ▼') : ''}
+      </th>
+    );
+  };
 
   return (
     <>
@@ -276,15 +350,15 @@ export function MotivosVivo({
             <table>
               <thead>
                 <tr>
-                  <th className="c-n">Psicólogo/a</th>
-                  <th>{esCancel ? 'Cancelaciones' : 'Pacientes'}</th>
-                  {esCancel && <th title="Pacientes distintos a los que les canceló">Pacientes</th>}
-                  {esCancel && <th title="Pacientes con 2 cancelaciones o más">Repetidos</th>}
+                  {th(ordPs, setOrdPs, 'nombre', 'Psicólogo/a', { className: 'c-n' })}
+                  {th(ordPs, setOrdPs, 'n', esCancel ? 'Cancelaciones' : 'Pacientes')}
+                  {esCancel && th(ordPs, setOrdPs, 'pacientes', 'Pacientes distintos', { title: 'A cuántos pacientes distintos les canceló' })}
+                  {esCancel && th(ordPs, setOrdPs, 'repetidos', 'Pacientes con 2+', { title: 'Cuántos de esos pacientes tuvieron 2 cancelaciones o más con este psicólogo/a' })}
                   <th>Motivos</th>
                 </tr>
               </thead>
               <tbody>
-                {porPsico.map(([id, x]) => {
+                {psicosOrdenados.map(([id, x]) => {
                   const repetidos = [...x.pacientes.values()].filter((n) => n >= 2).length;
                   return (
                     <tr key={id} className="mv-fila" onClick={() => filtrar(id, null, null)} title="Ver sus cancelaciones abajo">
@@ -316,12 +390,12 @@ export function MotivosVivo({
             <table>
               <thead>
                 <tr>
-                  <th title="Cuándo contestó el psicólogo/a">Fecha</th>
-                  <th className="c-n">Psicólogo/a</th>
-                  <th>Paciente</th>
-                  {esCancel && <th title="Cancelaciones de este paciente con este psicólogo/a">Veces</th>}
-                  {esCancel && <th>Sesión</th>}
-                  <th>Motivo</th>
+                  {th(ordDet, setOrdDet, 'fecha', 'Fecha', { title: 'Cuándo contestó el psicólogo/a' })}
+                  {th(ordDet, setOrdDet, 'psico', 'Psicólogo/a', { className: 'c-n' })}
+                  {th(ordDet, setOrdDet, 'paciente', 'Paciente')}
+                  {esCancel && th(ordDet, setOrdDet, 'veces', 'Veces con este psico', { title: 'Cuántas cancelaciones hay de este mismo paciente con este mismo psicólogo/a' })}
+                  {esCancel && th(ordDet, setOrdDet, 'sesion', 'Sesión')}
+                  {th(ordDet, setOrdDet, 'motivo', 'Motivo')}
                   <th>Detalle</th>
                 </tr>
               </thead>
@@ -346,7 +420,17 @@ export function MotivosVivo({
                         )}
                         {f.paciente && f.paciente_id && <span className="tm" style={{ color: 'var(--t3)' }}> #{f.paciente_id}</span>}
                       </td>
-                      {esCancel && <td className="tm" style={{ color: veces >= 2 ? 'var(--am)' : undefined, fontWeight: veces >= 2 ? 600 : undefined }}>{veces}</td>}
+                      {esCancel && (
+                        <td className="tm" style={{ color: veces >= 2 ? 'var(--am)' : undefined, fontWeight: veces >= 2 ? 600 : undefined }}>
+                          {veces >= 2 && f.paciente_id ? (
+                            <span className="mv-vz" onClick={() => filtrar(f.login_id, null, f.paciente_id)} title="Ver solo las de este paciente con este psicólogo/a">
+                              {veces}
+                            </span>
+                          ) : (
+                            veces
+                          )}
+                        </td>
+                      )}
                       {esCancel && (
                         <td className="tm">
                           {ddmm(f.sesion_fecha)}
@@ -364,7 +448,8 @@ export function MotivosVivo({
         </>
       )}
       <div className="mv-sub" style={{ marginTop: 6 }}>
-        &ldquo;Veces&rdquo; en naranja: al mismo paciente le cancelaron 2 veces o más. En rojo, los psicólogos/as que ya no están en la
+        &ldquo;Veces con este psico&rdquo; cuenta las cancelaciones del mismo paciente con el mismo psicólogo/a: en naranja si son 2 o más
+        (tocalo para verlas juntas). Tocá un encabezado para ordenar. En rojo, los psicólogos/as que ya no están en la
         plataforma. El nombre del paciente se lee en el momento de la plataforma y no se guarda en el dashboard.
       </div>
     </>
