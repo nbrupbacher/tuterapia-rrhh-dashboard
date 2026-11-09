@@ -210,6 +210,11 @@ function ddmm(dia: string | null): string {
   return `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
 }
 
+/** dd/mm/aa: el historial de fantasmeos puede abarcar varios años. */
+function ddmmaa(dia: string | null): string {
+  return dia ? `${ddmm(dia)}/${dia.slice(2, 4)}` : '—';
+}
+
 /** Fecha de un timestamptz, en día local. */
 function diaDe(ts: string | null): string | null {
   return ts ? diaLocal(new Date(ts)) : null;
@@ -1148,6 +1153,9 @@ export function AccionesTalent({ therapist }: { therapist: TherapistView }) {
   const id = therapist.id;
   const hoy = diaLocal(new Date());
   const [fantasmeo, setFantasmeo] = useState<Fantasmeo | null>(null);
+  // Los períodos anteriores: cada fantasmeo es una fila, así que el
+  // historial completo de la persona queda guardado.
+  const [historial, setHistorial] = useState<Fantasmeo[]>([]);
   const [salidas, setSalidas] = useState<Desv[]>([]);
   const [multas, setMultas] = useState<Multa[]>([]);
   const [email, setEmail] = useState<string | null>(null);
@@ -1157,14 +1165,16 @@ export function AccionesTalent({ therapist }: { therapist: TherapistView }) {
 
   const cargar = useCallback(async () => {
     const [a, b, c, u] = await Promise.all([
-      sb.from('fantasmeos').select('*').eq('therapist_id', id).is('hasta', null).maybeSingle(),
+      sb.from('fantasmeos').select('*').eq('therapist_id', id).order('desde', { ascending: false }),
       sb.from('desvinculaciones_estado').select('*').eq('therapist_id', id).order('created_at', { ascending: false }),
       sb.from('multas').select('*').eq('therapist_id', id).order('notificada_el', { ascending: false }),
       sb.auth.getUser(),
     ]);
     const e = a.error ?? b.error ?? c.error;
     setError(e ? e.message : null);
-    setFantasmeo((a.data as Fantasmeo | null) ?? null);
+    const fs = (a.data ?? []) as Fantasmeo[];
+    setFantasmeo(fs.find((x) => !x.hasta) ?? null);
+    setHistorial(fs.filter((x) => x.hasta));
     setSalidas((b.data ?? []) as Desv[]);
     setMultas((c.data ?? []) as Multa[]);
     setEmail(u.data?.user?.email ?? null);
@@ -1213,6 +1223,17 @@ export function AccionesTalent({ therapist }: { therapist: TherapistView }) {
             <span className="fd-sub">No está fantasmeado.</span>
           )}
         </div>
+        {historial.length > 0 && (
+          <div style={{ marginTop: 4 }}>
+            <div className="fd-sub">Fantasmeado antes ({historial.length === 1 ? '1 vez' : `${historial.length} veces`}):</div>
+            {historial.map((h) => (
+              <div key={h.id} className="fd-sub" style={{ color: 'var(--t2)' }}>
+                {ddmmaa(h.desde)} → {ddmmaa(h.hasta)} · {MOTIVO_F[h.motivo]}
+                {h.nota ? ` · ${h.nota}` : ''}
+              </div>
+            ))}
+          </div>
+        )}
         {salida && (
           <div>
             Salida ({MOTIVO_D[salida.motivo]}):{' '}
