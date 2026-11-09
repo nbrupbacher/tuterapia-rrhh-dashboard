@@ -146,14 +146,22 @@ export function NovedadesTicker() {
   }, []);
 
   useEffect(() => {
-    getSupabase()
-      .rpc('get_novedades_ultimo_mes')
-      .then(({ data, error }) => {
-        if (error || !data) return;
-        const mixed = shuffleVaried(data as NovedadRecord[]);
-        const texts = mixed.map(formatNovedad).filter(Boolean);
-        setItems(texts);
-      });
+    const sb = getSupabase();
+    const hoy = new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
+    Promise.all([
+      sb.rpc('get_novedades_ultimo_mes'),
+      // Reseñas de 5 estrellas que el equipo sumó desde En vivo → Reseñas.
+      // El texto ya viene armado; se muestran hasta ticker_hasta.
+      sb.from('resenas_revision').select('ticker_texto').eq('en_ticker', true).gte('ticker_hasta', hoy),
+    ]).then(([nov, res]) => {
+      const mixed = nov.error || !nov.data ? [] : shuffleVaried(nov.data as NovedadRecord[]);
+      const texts = mixed.map(formatNovedad).filter(Boolean);
+      const resenas = res.error ? [] : (res.data ?? []).map((r) => String(r.ticker_texto ?? '')).filter(Boolean);
+      // Las reseñas se intercalan para que no queden todas juntas al final.
+      const paso = resenas.length ? Math.max(1, Math.floor(texts.length / (resenas.length + 1))) : 0;
+      resenas.forEach((t, i) => texts.splice(Math.min(texts.length, (i + 1) * paso + i), 0, t));
+      setItems(texts);
+    });
   }, []);
 
   // Agrega padding al body para no tapar contenido con la barra fija
