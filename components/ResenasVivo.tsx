@@ -136,12 +136,18 @@ export function ResenasVivo({
   const [verRevisadas, setVerRevisadas] = useState(false);
   // Psicólogos/as que no están en la Matrix del mes (por ejemplo, dados de
   // baja): el nombre sale de `therapists`, como en Fantasmeos y salidas.
-  const [ters, setTers] = useState<Map<string, string>>(new Map());
+  const [ters, setTers] = useState<Map<string, { nombre: string; activo: boolean }>>(new Map());
 
   const matrixPor = useMemo(() => new Map(therapists.map((t) => [t.id, t])), [therapists]);
   const nombreDe = useCallback(
-    (id: string) => matrixPor.get(id)?.nombre ?? ters.get(id) ?? `Terapeuta #${id}`,
+    (id: string) => matrixPor.get(id)?.nombre ?? ters.get(id)?.nombre ?? `Terapeuta #${id}`,
     [matrixPor, ters],
+  );
+  // Los que ya no están en la plataforma se marcan en rojo (pedido de Talent).
+  const estiloPs = useCallback(
+    (id: string) =>
+      ters.get(id)?.activo === false ? { color: 'var(--r)', title: 'Ya no está en la plataforma' } : { color: undefined, title: undefined },
+    [ters],
   );
 
   useEffect(() => {
@@ -151,10 +157,10 @@ export function ResenasVivo({
     );
     if (faltan.length === 0) return;
     (async () => {
-      const m = new Map<string, string>();
+      const m = new Map<string, { nombre: string; activo: boolean }>();
       for (let i = 0; i < faltan.length; i += 200) {
-        const { data } = await getSupabase().from('therapists').select('id,nombre').in('id', faltan.slice(i, i + 200));
-        for (const t of (data ?? []) as { id: string; nombre: string }[]) m.set(String(t.id), t.nombre);
+        const { data } = await getSupabase().from('therapists').select('id,nombre,activo').in('id', faltan.slice(i, i + 200));
+        for (const t of (data ?? []) as { id: string; nombre: string; activo: boolean }[]) m.set(String(t.id), { nombre: t.nombre, activo: t.activo });
       }
       setTers(m);
     })();
@@ -261,7 +267,9 @@ export function ResenasVivo({
           <span className="rs-meta">{ddmm(r.fecha)}</span>
         </div>
         <div style={{ marginTop: 4 }}>
-          <span className="rs-ps" onClick={() => mx && onRowClick(mx)}>{nombreDe(r.therapist_id)}</span>{' '}
+          <span className="rs-ps" style={{ color: estiloPs(r.therapist_id).color }} title={estiloPs(r.therapist_id).title} onClick={() => mx && onRowClick(mx)}>
+            {nombreDe(r.therapist_id)}
+          </span>{' '}
           <span className={`b ${r.pais === 'AR' ? 'bar' : 'buy'}`}>{r.pais}</span>
         </div>
         {r.comentario ? <div className="rs-txt">“{r.comentario}”</div> : <div className="rs-txt rs-meta">Sin comentario</div>}
@@ -384,7 +392,11 @@ export function ResenasVivo({
               const mx = matrixPor.get(c.therapist_id);
               return (
                 <tr key={c.therapist_id}>
-                  <td className="c-n"><span className="rs-ps" onClick={() => mx && onRowClick(mx)}>{nombreDe(c.therapist_id)}</span></td>
+                  <td className="c-n">
+                    <span className="rs-ps" style={{ color: estiloPs(c.therapist_id).color }} title={estiloPs(c.therapist_id).title} onClick={() => mx && onRowClick(mx)}>
+                      {nombreDe(c.therapist_id)}
+                    </span>
+                  </td>
                   <td className="c-p"><span className={`b ${c.pais === 'AR' ? 'bar' : 'buy'}`}>{c.pais}</span></td>
                   <td className="tm">{coma(c.antes)} ★</td>
                   <td className="tm">{coma(c.ahora)} ★</td>
@@ -397,8 +409,8 @@ export function ResenasVivo({
         </table>
       </div>
       <div className="rs-sub" style={{ marginTop: 6 }}>
-        Las reseñas bajas se muestran aunque el psicólogo/a esté en ventana de respeto. El nombre del paciente se lee en el momento
-        de la plataforma y no se guarda en el dashboard.
+        Las reseñas bajas se muestran aunque el psicólogo/a esté en ventana de respeto. En rojo, los psicólogos/as que ya no están
+        en la plataforma. El nombre del paciente se lee en el momento de la plataforma y no se guarda en el dashboard.
       </div>
     </>
   );
