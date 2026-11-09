@@ -5,6 +5,7 @@ import { getSupabase } from '@/lib/supabase';
 import type { PaisFilter, TherapistView } from '@/lib/types';
 import { AlertasVivo } from '@/components/AlertasVivo';
 import { FantasmeosVivo } from '@/components/FantasmeosVivo';
+import { ResenasVivo } from '@/components/ResenasVivo';
 
 /**
  * Solapa En vivo → Todos los psicólogos.
@@ -13,9 +14,7 @@ import { FantasmeosVivo } from '@/components/FantasmeosVivo';
  * Las definiciones de cada número están en `lib/en-vivo-sync.ts`.
  *
  * Alertas vive en components/AlertasVivo.tsx; Fantasmeos y salidas, en
- * components/FantasmeosVivo.tsx. Reseñas es la fase siguiente
- * del mockup de Talent: se ve en la barra de sub-pestañas para que se
- * entienda dónde va, pero todavía no tiene contenido.
+ * components/FantasmeosVivo.tsx; Reseñas, en components/ResenasVivo.tsx.
  */
 
 type Diario = {
@@ -60,7 +59,7 @@ type Fila = {
 
 type Orden = 'ses' | 'prox7' | 'ult' | 'nombre';
 type Escala = 'dia' | 'semana';
-type Sub = 'alertas' | 'todos' | 'fantasmeos';
+type Sub = 'alertas' | 'todos' | 'fantasmeos' | 'resenas';
 
 // Estilos propios de la solapa, con las variables de globals.css. Viven acá
 // para que todo lo de En vivo esté en un solo archivo.
@@ -287,7 +286,7 @@ export function EnVivoView({
         <div className={`tab ${sub === 'alertas' ? 'on' : ''}`} onClick={() => setSub('alertas')}>Alertas</div>
         <div className={`tab ${sub === 'todos' ? 'on' : ''}`} onClick={() => setSub('todos')}>Todos los psicólogos</div>
         <div className={`tab ${sub === 'fantasmeos' ? 'on' : ''}`} onClick={() => setSub('fantasmeos')}>Fantasmeos y salidas</div>
-        <div className="tab vv-off" title="Próxima fase">Reseñas</div>
+        <div className={`tab ${sub === 'resenas' ? 'on' : ''}`} onClick={() => setSub('resenas')}>Reseñas</div>
       </div>
       <div className="vv-sync">
         {sync ? `Datos al ${fechaHora(sync.corrida_en)}` : 'Sin sincronización todavía'}
@@ -295,6 +294,16 @@ export function EnVivoView({
       </div>
     </div>
   );
+
+  if (sub === 'resenas') {
+    return (
+      <>
+        <style>{ESTILOS}</style>
+        {barra}
+        <ResenasVivo pais={pais} therapists={therapists} onRowClick={onRowClick} />
+      </>
+    );
+  }
 
   if (sub === 'fantasmeos') {
     return (
