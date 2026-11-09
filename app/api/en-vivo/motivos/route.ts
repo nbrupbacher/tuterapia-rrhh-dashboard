@@ -14,6 +14,11 @@ export const maxDuration = 60;
  * paciente quedó inactivo. Base de los botones Cancelaciones / Pacientes
  * inactivos de En vivo.
  *
+ * Cancelación o inactividad: las de cancelar o mover una sesión traen la
+ * sesión en `data` (idSesion); la de "Motivo de inactividad" (cuando el
+ * psicólogo/a pasa al paciente a inactivos) no. Al 2026-11-09 todas las
+ * respuestas eran de sesiones: la encuesta empezó el 2026-11-05.
+ *
  * Dos usos:
  * - Dashboard (sesión del usuario): el resumen y las respuestas de los
  *   últimos DIAS días, con el texto de "otro motivo".
@@ -76,12 +81,39 @@ export async function GET(request: Request) {
       const [filas] = await conn.query<RowDataPacket[]>(
         `SELECT e.idEncuestaMotivo AS id, e.idLogin AS login_id, l.tipo AS tipo_login, l.paisDominio AS pais,
                 e.tipo, e.accion, e.motivo, e.motivoTitulo AS titulo, e.otroMotivoTxt AS texto,
-                CASE WHEN JSON_VALID(e.data) THEN e.data END AS data, e.fecha
+                CASE WHEN JSON_VALID(e.data) THEN JSON_UNQUOTE(JSON_EXTRACT(e.data, '$.idPaciente')) END AS paciente_id,
+                CASE WHEN JSON_VALID(e.data) THEN JSON_UNQUOTE(JSON_EXTRACT(e.data, '$.idSesion')) END AS sesion_id,
+                CASE WHEN JSON_VALID(e.data) THEN JSON_UNQUOTE(JSON_EXTRACT(e.data, '$.fecha')) END AS sesion_fecha,
+                CASE WHEN JSON_VALID(e.data) THEN JSON_UNQUOTE(JSON_EXTRACT(e.data, '$.horaIni')) END AS sesion_hora,
+                e.fecha
            FROM encuesta_motivos e
            LEFT JOIN login l ON l.id = e.idLogin
           WHERE e.fecha >= UTC_TIMESTAMP() - INTERVAL ${DIAS} DAY
           ORDER BY e.fecha DESC`,
       );
+      // Nombres de los pacientes de las respuestas (como en Alertas y Reseñas):
+      // se leen en el momento y no se guardan.
+      const nombres: Record<string, string> = {};
+      const idsPac = [...new Set(filas.map((f) => Number(f.paciente_id)).filter((n) => Number.isInteger(n) && n > 0))];
+      if (idsPac.length) {
+        const [cols] = await conn.query<RowDataPacket[]>(
+          `SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pacientes'
+              AND COLUMN_NAME IN ('apellido', 'apellidos')`,
+        );
+        const apellido = cols[0]?.c ? String(cols[0].c) : null;
+        const [rows] = await conn.query<RowDataPacket[]>(
+          `SELECT id_login AS id, nombre${apellido ? `, ${apellido} AS apellido` : ''}
+             FROM pacientes
+            WHERE id_login IN (?)`,
+          [idsPac],
+        );
+        for (const r of rows) {
+          const completo = [r.nombre, r.apellido].map((x) => (x == null ? '' : String(x).trim())).filter(Boolean).join(' ');
+          if (completo) nombres[String(r.id)] = completo;
+        }
+      }
+
       return {
         resumen,
         filas: filas.map((f) => ({
@@ -94,7 +126,11 @@ export async function GET(request: Request) {
           motivo: f.motivo ?? '',
           titulo: f.titulo ?? '',
           texto: f.texto ? String(f.texto).trim() : '',
-          data: f.data ?? null,
+          clase: f.sesion_id && f.sesion_id !== 'null' ? 'cancelacion' : 'inactividad',
+          paciente_id: f.paciente_id && f.paciente_id !== 'null' ? String(f.paciente_id) : null,
+          paciente: f.paciente_id ? nombres[String(f.paciente_id)] ?? '' : '',
+          sesion_fecha: f.sesion_fecha && f.sesion_fecha !== 'null' ? String(f.sesion_fecha) : null,
+          sesion_hora: f.sesion_hora && f.sesion_hora !== 'null' ? String(f.sesion_hora) : null,
           fecha: f.fecha,
         })),
       };
