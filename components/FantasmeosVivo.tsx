@@ -34,7 +34,7 @@ import type { PaisFilter, TherapistView } from '@/lib/types';
  * fantasmeos se dedujeron de las notas: se corrigen con Editar.
  */
 
-type MotivoF = 'salida_nuestra' | 'salida_psicologo' | 'conversion_baja' | 'pausa' | 'otro';
+type MotivoF = 'salida_nuestra' | 'salida_psicologo' | 'llevando_pacientes' | 'conversion_baja' | 'pausa' | 'otro';
 type MotivoD = 'por_el_psicologo' | 'nuestra' | 'a_definir';
 type EstadoD =
   | 'falta_desactivar'
@@ -111,6 +111,7 @@ type Modal =
 const MOTIVO_F: Record<MotivoF, string> = {
   salida_nuestra: 'Salida nuestra',
   salida_psicologo: 'Salida del psicólogo/a',
+  llevando_pacientes: 'Se está llevando pacientes',
   conversion_baja: 'Conversión baja',
   pausa: 'Pausa',
   otro: 'Otro',
@@ -178,6 +179,8 @@ function sumarHabiles(dia: string, n: number): string {
 const SALIDA_DESDE_F: Partial<Record<MotivoF, MotivoD>> = {
   salida_nuestra: 'nuestra',
   salida_psicologo: 'por_el_psicologo',
+  // Llevarse pacientes por fuera es motivo de salida nuestra.
+  llevando_pacientes: 'nuestra',
 };
 
 const LOCAL_OFFSET_MS = 3 * 3_600_000;

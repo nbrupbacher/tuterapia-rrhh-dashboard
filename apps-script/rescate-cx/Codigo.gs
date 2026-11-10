@@ -10,6 +10,10 @@
  *     situación (si el paciente ya agendó, se ve acá y no hace falta llamar).
  *     También trae el teléfono y, si tiene código de país, un link de WhatsApp.
  *
+ * Al escribir una Respuesta CX o un Comentario CX se anota sola la fecha y
+ * hora en "Fecha contacto" (cuándo se llamó, aunque todavía no haya respuesta,
+ * por ejemplo si pidió que la llamen más tarde).
+ *
  * El dashboard valida el token de Google de quien sincroniza: tiene que ser
  * una cuenta @tuterapia.com.uy y este script tiene que estar habilitado en la
  * tabla cx_planilla_clientes. No hay contraseñas ni claves guardadas acá.
@@ -18,18 +22,18 @@
 var API = 'https://tuterapia-rrhh-dashboard.vercel.app/api/cx/planilla';
 var HOJA = 'CX';
 // Celda donde queda la última sincronización (o el error).
-var ESTADO = 'R1';
+var ESTADO = 'S1';
 
 var COLS = [
   'Paciente', 'Teléfono', 'WhatsApp', 'N° paciente', 'Psicólogo/a', 'País',
   'Regla', 'Motivo', 'Días', 'Fecha (registro o sesión)', 'Derivada el',
-  'Situación', 'Respuesta CX', 'Comentario CX', 'Guardado', 'alerta_id',
+  'Situación', 'Respuesta CX', 'Fecha contacto', 'Comentario CX', 'Guardado', 'alerta_id',
 ];
 // Posiciones (1 = columna A).
 var C = {
   paciente: 1, telefono: 2, whatsapp: 3, nro: 4, psicologo: 5, pais: 6,
   regla: 7, motivo: 8, dias: 9, fecha: 10, derivada: 11, situacion: 12,
-  respuesta: 13, comentario: 14, guardado: 15, id: 16,
+  respuesta: 13, fechaResp: 14, comentario: 15, guardado: 16, id: 17,
 };
 
 function onOpen() {
@@ -42,13 +46,24 @@ function onOpen() {
 
 // Si CX cambia la respuesta o el comentario de una fila ya guardada, se borra
 // la marca de "Guardado" para que la próxima sincronización la mande de nuevo.
+// Al escribir (o cambiar) la respuesta o el comentario se anota cuándo; si se
+// borran los dos, se borra la fecha. Si se edita a mano la fecha, se respeta.
 function onEdit(e) {
   var r = e.range;
-  if (r.getSheet().getName() !== HOJA || r.getRow() < 2) return;
+  var hoja = r.getSheet();
+  if (hoja.getName() !== HOJA || r.getRow() < 2) return;
   var desde = r.getColumn();
   var hasta = desde + r.getNumColumns() - 1;
   if (hasta < C.respuesta || desde > C.comentario) return;
-  r.getSheet().getRange(r.getRow(), C.guardado, r.getNumRows(), 1).clearContent();
+  hoja.getRange(r.getRow(), C.guardado, r.getNumRows(), 1).clearContent();
+  if (desde === C.fechaResp && hasta === C.fechaResp) return;
+  var filas = hoja.getRange(r.getRow(), C.respuesta, r.getNumRows(), 3).getValues();
+  var cuando = ahora();
+  hoja.getRange(r.getRow(), C.fechaResp, r.getNumRows(), 1)
+    .setNumberFormat('@')
+    .setValues(filas.map(function (v) {
+      return [String(v[0]).trim() || String(v[2]).trim() ? cuando : ''];
+    }));
 }
 
 function activarAutomatico() {
@@ -132,6 +147,25 @@ function prepararHoja() {
     hoja.setColumnWidth(C.telefono, 130);
     hoja.setColumnWidth(C.whatsapp, 90);
   }
+  // Planilla armada antes de "Fecha contacto": se inserta después de
+  // Respuesta CX. Las respuestas que ya estaban toman la fecha en que se
+  // guardaron (la marca de Guardado), que es lo más cercano a la llamada.
+  if (hoja.getRange(1, C.fechaResp).getValue() === 'Comentario CX') {
+    hoja.insertColumnsAfter(C.respuesta, 1);
+    hoja.getRange(1, C.fechaResp).setValue(COLS[C.fechaResp - 1]).setBackground('#fff3c4');
+    hoja.setColumnWidth(C.fechaResp, 110);
+    var n0 = hoja.getLastRow() - 1;
+    if (n0 > 0) {
+      // La columna nueva copia la lista de respuestas de al lado: se saca.
+      hoja.getRange(2, C.fechaResp, n0, 1).clearDataValidations();
+      var resp0 = hoja.getRange(2, C.respuesta, n0, 1).getValues();
+      var guard0 = hoja.getRange(2, C.guardado, n0, 1).getValues();
+      hoja.getRange(2, C.fechaResp, n0, 1).setNumberFormat('@').setValues(resp0.map(function (v, i) {
+        var g = String(guard0[i][0]);
+        return [String(v[0]).trim() && g.indexOf('✓') === 0 ? g.replace('✓', '').trim() : ''];
+      }));
+    }
+  }
   if (hoja.getRange(1, 1).getValue() !== COLS[0]) {
     hoja.getRange(1, 1, 1, COLS.length).setValues([COLS]).setFontWeight('bold').setBackground('#e8f0fe');
     hoja.setFrozenRows(1);
@@ -144,7 +178,8 @@ function prepararHoja() {
     hoja.setColumnWidth(C.situacion, 140);
     hoja.setColumnWidth(C.respuesta, 160);
     hoja.setColumnWidth(C.comentario, 260);
-    hoja.getRange(1, C.respuesta, 1, 2).setBackground('#fff3c4');
+    hoja.setColumnWidth(C.fechaResp, 110);
+    hoja.getRange(1, C.respuesta, 1, 3).setBackground('#fff3c4');
   }
   return hoja;
 }
@@ -232,6 +267,7 @@ function traerAlertas(hoja) {
     v[C.derivada - 1] = f.derivada_el;
     v[C.situacion - 1] = f.situacion;
     v[C.respuesta - 1] = '';
+    v[C.fechaResp - 1] = '';
     v[C.comentario - 1] = '';
     v[C.guardado - 1] = '';
     v[C.id - 1] = f.alerta_id;
