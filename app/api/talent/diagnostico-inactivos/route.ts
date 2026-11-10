@@ -18,9 +18,10 @@ export const maxDuration = 60;
  *   corre justo después de desactivar un paciente de prueba).
  * - ?parte=columnas: columnas cuyo nombre suena a motivo / baja / inactivo.
  * - ?parte=paciente&q=Nombre Apellido: para UN paciente de prueba que Talent
- *   desactivó a propósito: su id, si tiene respuestas en encuesta_motivos, las
- *   columnas de las tablas *_log y de las que tienen "paciente" en el nombre,
- *   y sus últimas filas de pacientes_log (textos largos cortados).
+ *   desactivó a propósito: su id, si tiene respuestas en encuesta_motivos,
+ *   sus últimas filas de pacientes_log y terapeutas_log (textos largos
+ *   cortados), si su login está activo, y qué acciones registran los dos logs
+ *   en el último mes (solo conteos).
  *
  * Solo para el Apps Script de Talent (lib/google-script-auth). Borrar cuando
  * se sepa dónde está.
@@ -65,6 +66,10 @@ export async function GET(request: Request) {
         const ids = pacs.map((p) => Number(p.id));
         let encuesta: RowDataPacket[] = [];
         let log: Record<string, unknown>[] = [];
+        let logTer: Record<string, unknown>[] = [];
+        let logins: RowDataPacket[] = [];
+        const cortar = (filas: RowDataPacket[]) =>
+          filas.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === 'string' && v.length > 300 ? `${v.slice(0, 300)}…` : v])));
         if (ids.length) {
           [encuesta] = await conn.query<RowDataPacket[]>(
             `SELECT idEncuestaMotivo AS id, tipo, accion, motivo, motivoTitulo AS titulo, fecha, JSON_KEYS(data) AS claves
@@ -81,10 +86,24 @@ export async function GET(request: Request) {
               `SELECT * FROM pacientes_log WHERE ${colId} IN (?) ${colOrden ? `ORDER BY ${colOrden} DESC` : ''} LIMIT 10`,
               [ids],
             );
-            log = filasLog.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === 'string' && v.length > 300 ? `${v.slice(0, 300)}…` : v])));
+            log = cortar(filasLog);
           }
+          const [filasTer] = await conn.query<RowDataPacket[]>(
+            `SELECT * FROM terapeutas_log WHERE idPaciente IN (?) ORDER BY fecha DESC LIMIT 15`,
+            [ids],
+          );
+          logTer = cortar(filasTer);
+          [logins] = await conn.query<RowDataPacket[]>(`SELECT id, tipo, active FROM login WHERE id IN (?)`, [ids]);
         }
-        return { ids, encuesta, columnas: colsPac, pacientes_log: log };
+        const [acciones] = await conn.query<RowDataPacket[]>(
+          `SELECT 'terapeutas_log' AS tabla, accion, COUNT(*) AS n, MAX(fecha) AS ultima
+             FROM terapeutas_log WHERE fecha >= UTC_TIMESTAMP() - INTERVAL 30 DAY GROUP BY accion
+           UNION ALL
+           SELECT 'pacientes_log', accion, COUNT(*), MAX(fecha)
+             FROM pacientes_log WHERE fecha >= UTC_TIMESTAMP() - INTERVAL 30 DAY GROUP BY accion
+           ORDER BY tabla, n DESC`,
+        );
+        return { ids, logins, encuesta, pacientes_log: log, terapeutas_log: logTer, acciones };
       }
       if (parte === 'columnas') {
         const [cols] = await conn.query<RowDataPacket[]>(
