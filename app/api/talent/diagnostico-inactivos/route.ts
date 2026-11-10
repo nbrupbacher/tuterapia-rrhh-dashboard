@@ -22,6 +22,9 @@ export const maxDuration = 60;
  *   sus últimas filas de pacientes_log y terapeutas_log (textos largos
  *   cortados), si su login está activo, y qué acciones registran los dos logs
  *   en el último mes (solo conteos).
+ * - ?parte=tablas: todas las tablas con sus columnas (solo nombres) y filas
+ *   aproximadas. El activo/inactivo es del listado de cada psicólogo/a, no del
+ *   paciente: hay que encontrar dónde lo guarda.
  *
  * Solo para el Apps Script de Talent (lib/google-script-auth). Borrar cuando
  * se sepa dónde está.
@@ -104,6 +107,18 @@ export async function GET(request: Request) {
            ORDER BY tabla, n DESC`,
         );
         return { ids, logins, encuesta, pacientes_log: log, terapeutas_log: logTer, acciones };
+      }
+      if (parte === 'tablas') {
+        const [filas] = await conn.query<RowDataPacket[]>(
+          `SELECT t.TABLE_NAME AS tabla, t.TABLE_ROWS AS filas,
+                  GROUP_CONCAT(c.COLUMN_NAME ORDER BY c.ORDINAL_POSITION SEPARATOR ',') AS columnas
+             FROM information_schema.TABLES t
+             JOIN information_schema.COLUMNS c ON c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
+            WHERE t.TABLE_SCHEMA = DATABASE()
+            GROUP BY t.TABLE_NAME, t.TABLE_ROWS
+            ORDER BY t.TABLE_NAME`,
+        );
+        return { tablas: filas };
       }
       if (parte === 'columnas') {
         const [cols] = await conn.query<RowDataPacket[]>(
