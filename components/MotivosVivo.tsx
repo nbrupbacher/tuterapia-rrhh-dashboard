@@ -171,6 +171,23 @@ export function MotivosVivo({
     return m;
   }, [visibles]);
 
+  // Qué número de cancelación es cada una dentro de su par psicólogo/a-paciente,
+  // por fecha de la sesión (o de la respuesta): 1 de 2, 2 de 2…
+  const numeroEnPar = useMemo(() => {
+    const grupos = new Map<string, Fila[]>();
+    for (const f of visibles) {
+      if (!f.paciente_id) continue;
+      const k = `${f.login_id}|${f.paciente_id}`;
+      grupos.set(k, [...(grupos.get(k) ?? []), f]);
+    }
+    const m = new Map<number, number>();
+    for (const g of grupos.values()) {
+      g.sort((a, b) => `${a.sesion_fecha ?? a.fecha} ${a.sesion_hora ?? ''}`.localeCompare(`${b.sesion_fecha ?? b.fecha} ${b.sesion_hora ?? ''}`));
+      g.forEach((f, i) => m.set(f.id, i + 1));
+    }
+    return m;
+  }, [visibles]);
+
   const detalle = useMemo(() => {
     const out = visibles.filter(
       (f) =>
@@ -393,7 +410,7 @@ export function MotivosVivo({
                   {th(ordDet, setOrdDet, 'fecha', 'Fecha', { title: 'Cuándo contestó el psicólogo/a' })}
                   {th(ordDet, setOrdDet, 'psico', 'Psicólogo/a', { className: 'c-n' })}
                   {th(ordDet, setOrdDet, 'paciente', 'Paciente')}
-                  {esCancel && th(ordDet, setOrdDet, 'veces', 'Veces con este psico', { title: 'Cuántas cancelaciones hay de este mismo paciente con este mismo psicólogo/a' })}
+                  {esCancel && th(ordDet, setOrdDet, 'veces', 'Cancelación n°', { title: 'Cuál de las cancelaciones de este paciente con este psicólogo/a es: 1 de 2 es la primera de dos' })}
                   {esCancel && th(ordDet, setOrdDet, 'sesion', 'Sesión')}
                   {th(ordDet, setOrdDet, 'motivo', 'Motivo')}
                   <th>Detalle</th>
@@ -424,10 +441,10 @@ export function MotivosVivo({
                         <td className="tm" style={{ color: veces >= 2 ? 'var(--am)' : undefined, fontWeight: veces >= 2 ? 600 : undefined }}>
                           {veces >= 2 && f.paciente_id ? (
                             <span className="mv-vz" onClick={() => filtrar(f.login_id, null, f.paciente_id)} title="Ver solo las de este paciente con este psicólogo/a">
-                              {veces}
+                              {numeroEnPar.get(f.id) ?? '?'} de {veces}
                             </span>
                           ) : (
-                            veces
+                            <span style={{ color: 'var(--t3)' }}>única</span>
                           )}
                         </td>
                       )}
@@ -448,8 +465,8 @@ export function MotivosVivo({
         </>
       )}
       <div className="mv-sub" style={{ marginTop: 6 }}>
-        &ldquo;Veces con este psico&rdquo; cuenta las cancelaciones del mismo paciente con el mismo psicólogo/a: en naranja si son 2 o más
-        (tocalo para verlas juntas). Tocá un encabezado para ordenar. En rojo, los psicólogos/as que ya no están en la
+        &ldquo;Cancelación n°&rdquo;: si el mismo paciente tuvo varias cancelaciones con el mismo psicólogo/a, dice cuál es (1 de 2 = la
+        primera de dos, por fecha de la sesión), en naranja; tocalo para verlas juntas. &ldquo;Única&rdquo;: fue la única. Tocá un encabezado para ordenar. En rojo, los psicólogos/as que ya no están en la
         plataforma. El nombre del paciente se lee en el momento de la plataforma y no se guarda en el dashboard.
       </div>
     </>
