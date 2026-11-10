@@ -10,8 +10,9 @@
  *     situación (si el paciente ya agendó, se ve acá y no hace falta llamar).
  *     También trae el teléfono y, si tiene código de país, un link de WhatsApp.
  *
- * Al elegir una Respuesta CX se anota sola la fecha y hora en "Fecha respuesta"
- * (cuándo se hizo la llamada).
+ * Al escribir una Respuesta CX o un Comentario CX se anota sola la fecha y
+ * hora en "Fecha contacto" (cuándo se llamó, aunque todavía no haya respuesta,
+ * por ejemplo si pidió que la llamen más tarde).
  *
  * El dashboard valida el token de Google de quien sincroniza: tiene que ser
  * una cuenta @tuterapia.com.uy y este script tiene que estar habilitado en la
@@ -26,7 +27,7 @@ var ESTADO = 'S1';
 var COLS = [
   'Paciente', 'Teléfono', 'WhatsApp', 'N° paciente', 'Psicólogo/a', 'País',
   'Regla', 'Motivo', 'Días', 'Fecha (registro o sesión)', 'Derivada el',
-  'Situación', 'Respuesta CX', 'Fecha respuesta', 'Comentario CX', 'Guardado', 'alerta_id',
+  'Situación', 'Respuesta CX', 'Fecha contacto', 'Comentario CX', 'Guardado', 'alerta_id',
 ];
 // Posiciones (1 = columna A).
 var C = {
@@ -45,7 +46,8 @@ function onOpen() {
 
 // Si CX cambia la respuesta o el comentario de una fila ya guardada, se borra
 // la marca de "Guardado" para que la próxima sincronización la mande de nuevo.
-// Al poner (o cambiar) la respuesta se anota cuándo; si se borra, se borra la fecha.
+// Al escribir (o cambiar) la respuesta o el comentario se anota cuándo; si se
+// borran los dos, se borra la fecha. Si se edita a mano la fecha, se respeta.
 function onEdit(e) {
   var r = e.range;
   var hoja = r.getSheet();
@@ -54,13 +56,14 @@ function onEdit(e) {
   var hasta = desde + r.getNumColumns() - 1;
   if (hasta < C.respuesta || desde > C.comentario) return;
   hoja.getRange(r.getRow(), C.guardado, r.getNumRows(), 1).clearContent();
-  if (desde <= C.respuesta && hasta >= C.respuesta) {
-    var resp = hoja.getRange(r.getRow(), C.respuesta, r.getNumRows(), 1).getValues();
-    var cuando = ahora();
-    hoja.getRange(r.getRow(), C.fechaResp, r.getNumRows(), 1)
-      .setNumberFormat('@')
-      .setValues(resp.map(function (v) { return [String(v[0]).trim() ? cuando : '']; }));
-  }
+  if (desde === C.fechaResp && hasta === C.fechaResp) return;
+  var filas = hoja.getRange(r.getRow(), C.respuesta, r.getNumRows(), 3).getValues();
+  var cuando = ahora();
+  hoja.getRange(r.getRow(), C.fechaResp, r.getNumRows(), 1)
+    .setNumberFormat('@')
+    .setValues(filas.map(function (v) {
+      return [String(v[0]).trim() || String(v[2]).trim() ? cuando : ''];
+    }));
 }
 
 function activarAutomatico() {
@@ -144,7 +147,7 @@ function prepararHoja() {
     hoja.setColumnWidth(C.telefono, 130);
     hoja.setColumnWidth(C.whatsapp, 90);
   }
-  // Planilla armada antes de "Fecha respuesta": se inserta después de
+  // Planilla armada antes de "Fecha contacto": se inserta después de
   // Respuesta CX. Las respuestas que ya estaban toman la fecha en que se
   // guardaron (la marca de Guardado), que es lo más cercano a la llamada.
   if (hoja.getRange(1, C.fechaResp).getValue() === 'Comentario CX') {
