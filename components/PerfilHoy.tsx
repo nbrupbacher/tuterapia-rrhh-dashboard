@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { getSupabase } from '@/lib/supabase';
 
 /**
@@ -61,9 +61,14 @@ const ESTILOS = `
 .ph-track { grid-column:1 / -1; height:4px; background:var(--bg2); border-radius:2px; overflow:hidden; }
 .ph-fill { height:100%; background:var(--c); opacity:.75; border-radius:2px; }
 .ph-vacio { font-size:11px; color:var(--t3); margin-top:5px; }
+.ph.ph-mes { border-color:rgba(79,142,247,.35); background:linear-gradient(180deg, rgba(79,142,247,.07), rgba(79,142,247,0) 70%); }
+.ph-mes .ph-tit { color:var(--ac); }
+.ph-mes .ph-dot { background:var(--ac); border-radius:2px; animation:none; box-shadow:none; }
 `;
 
 const COLOR = { cancel: 'var(--am)', alertas: 'var(--ac)', cx: 'var(--ar)', resenas: '#facc15' };
+// Tarjeta sin nada para mostrar: gris, para que resalte lo que sí tiene datos.
+const GRIS = 'var(--t3)';
 
 export function PerfilHoy({ therapistId }: { therapistId: string }) {
   const [datos, setDatos] = useState<Datos | null>(null);
@@ -157,7 +162,7 @@ export function PerfilHoy({ therapistId }: { therapistId: string }) {
         ) : (
           <div className="ph-grid">
             {/* Cancelaciones */}
-            <div className="ph-card" style={card(COLOR.cancel)}>
+            <div className="ph-card" style={card(c?.total ? COLOR.cancel : GRIS)}>
               <div className="ph-top">
                 <span className="ph-num">{c?.total ?? 0}</span>
                 <span className="ph-lbl">cancelaciones con motivo · 30 días</span>
@@ -187,12 +192,12 @@ export function PerfilHoy({ therapistId }: { therapistId: string }) {
                   </div>
                 </>
               ) : (
-                <div className="ph-vacio">Sin cancelaciones con motivo (la encuesta existe desde el 05/11).</div>
+                <div className="ph-vacio">Ninguna en 30 días (la encuesta existe desde el 05/11).</div>
               )}
             </div>
 
             {/* Alertas */}
-            <div className="ph-card" style={card(COLOR.alertas)}>
+            <div className="ph-card" style={card(vigTotal ? COLOR.alertas : GRIS)}>
               <div className="ph-top">
                 <span className="ph-num">{vigTotal}</span>
                 <span className="ph-lbl">pacientes en alerta ahora</span>
@@ -210,7 +215,7 @@ export function PerfilHoy({ therapistId }: { therapistId: string }) {
             </div>
 
             {/* CX */}
-            <div className="ph-card" style={card(porFuera > 0 ? 'var(--r)' : COLOR.cx)}>
+            <div className="ph-card" style={card(porFuera > 0 ? 'var(--r)' : totalCx ? COLOR.cx : GRIS)}>
               <div className="ph-top">
                 <span className="ph-num">{totalCx}</span>
                 <span className="ph-lbl">respuestas de CX sobre sus pacientes</span>
@@ -232,12 +237,12 @@ export function PerfilHoy({ therapistId }: { therapistId: string }) {
                     ))}
                 </div>
               ) : (
-                <div className="ph-vacio">Todavía no hay respuestas de CX.</div>
+                <div className="ph-vacio">Sin respuestas todavía.</div>
               )}
             </div>
 
             {/* Reseñas */}
-            <div className="ph-card" style={card(COLOR.resenas)}>
+            <div className="ph-card" style={card(r?.ahora != null ? COLOR.resenas : GRIS)}>
               <div className="ph-top">
                 <span className="ph-num">{r?.ahora != null ? `${coma(r.ahora)}★` : '—'}</span>
                 <span className="ph-lbl">
@@ -262,6 +267,29 @@ export function PerfilHoy({ therapistId }: { therapistId: string }) {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+/**
+ * Marco de "Métricas del mes" en el perfil: mismo formato que "Hoy en la
+ * plataforma" pero en azul y con el punto quieto, porque es la foto del mes.
+ */
+export function MarcoMes({ mes, children }: { mes?: string; children: ReactNode }) {
+  const nombre = mes && /^\d{4}-\d{2}/.test(mes) ? `${MESES[Number(mes.slice(5, 7)) - 1]} ${mes.slice(0, 4)}` : null;
+  return (
+    <div className="ms">
+      <style>{ESTILOS}</style>
+      <div className="ph ph-mes">
+        <div className="ph-hd">
+          <span className="ph-dot" />
+          <span className="ph-tit">MÉTRICAS DEL MES</span>
+          <span className="ph-aclara">{nombre ? `Foto de ${nombre}` : 'Foto del mes de la matriz'}</span>
+        </div>
+        {children}
       </div>
     </div>
   );
