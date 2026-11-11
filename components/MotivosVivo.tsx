@@ -51,6 +51,7 @@ const ESTILOS = `
 .mv-th:hover { color:var(--t); }
 .mv-vz { cursor:pointer; }
 .mv-vz:hover { text-decoration:underline; }
+.mv-busca { flex:1; max-width:380px; padding:6px 10px; border:1px solid rgba(128,128,128,.35); border-radius:6px; background:transparent; color:var(--t); font-size:12px; }
 `;
 
 // Columnas que se pueden ordenar tocando el encabezado.
@@ -65,6 +66,9 @@ const nombrePac = (f: Pick<Fila, 'paciente' | 'paciente_id'>) => f.paciente || (
 function cmp(a: string | number, b: string | number): number {
   return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b), 'es', { sensitivity: 'base' });
 }
+
+// Para buscar sin importar mayúsculas ni tildes.
+const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 function diaLocal(d: Date): string {
   return new Date(d.getTime() - 3 * 3_600_000).toISOString().slice(0, 10);
@@ -94,6 +98,8 @@ export function MotivosVivo({
   const [filtroPs, setFiltroPs] = useState<string | null>(null);
   const [filtroMotivo, setFiltroMotivo] = useState<string | null>(null);
   const [filtroPac, setFiltroPac] = useState<string | null>(null);
+  // Búsqueda por nombre o número de psicólogo/a o de paciente.
+  const [busca, setBusca] = useState('');
   // Orden elegido tocando un encabezado. Sin elegir: el detalle va por fecha
   // (o agrupado por paciente si hay un psicólogo/a elegido).
   const [ordDet, setOrdDet] = useState<Orden<ColDet> | null>(null);
@@ -188,12 +194,22 @@ export function MotivosVivo({
     return m;
   }, [visibles]);
 
+  const coincide = useCallback(
+    (f: Fila) => {
+      const q = norm(busca.trim().replace(/^#/, ''));
+      if (!q) return true;
+      return [nombreDe(f.login_id), nombrePac(f), f.login_id, f.paciente_id ?? ''].some((x) => norm(String(x)).includes(q));
+    },
+    [busca, nombreDe],
+  );
+
   const detalle = useMemo(() => {
     const out = visibles.filter(
       (f) =>
         (!filtroPs || f.login_id === filtroPs) &&
         (!filtroMotivo || (f.titulo || f.motivo) === filtroMotivo) &&
-        (!filtroPac || f.paciente_id === filtroPac),
+        (!filtroPac || f.paciente_id === filtroPac) &&
+        coincide(f),
     );
     const veces = (f: Fila) => vecesPar.get(`${f.login_id}|${f.paciente_id}`) ?? 1;
     if (ordDet) {
@@ -225,7 +241,7 @@ export function MotivosVivo({
             b.fecha.localeCompare(a.fecha),
         )
       : out.sort((a, b) => b.fecha.localeCompare(a.fecha));
-  }, [visibles, filtroPs, filtroMotivo, filtroPac, vecesPar, ordDet, nombreDe]);
+  }, [visibles, filtroPs, filtroMotivo, filtroPac, vecesPar, ordDet, nombreDe, coincide]);
 
   const psicosOrdenados = useMemo(() => {
     const clave = ([id, x]: (typeof porPsico)[number]): string | number => {
@@ -244,7 +260,7 @@ export function MotivosVivo({
   const max = porMotivo[0]?.[1] ?? 1;
   const total = visibles.length;
   const esCancel = clase === 'cancelacion';
-  const hayFiltro = Boolean(filtroPs || filtroMotivo || filtroPac);
+  const hayFiltro = Boolean(filtroPs || filtroMotivo || filtroPac || busca.trim());
   const irA = (id: string) => setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   const filtrar = (ps: string | null, motivo: string | null, pac: string | null) => {
     setFiltroPs(ps);
@@ -330,6 +346,16 @@ export function MotivosVivo({
         </div>
       </div>
 
+      <div className="mv-hd" style={{ marginTop: 12 }}>
+        <input
+          className="mv-busca"
+          type="search"
+          placeholder="Buscar psicólogo/a o paciente (nombre o #número)"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+        />
+      </div>
+
       {total === 0 ? (
         <div className="mv-sub" style={{ marginTop: 12 }}>
           {esCancel
@@ -375,7 +401,7 @@ export function MotivosVivo({
                 </tr>
               </thead>
               <tbody>
-                {psicosOrdenados.map(([id, x]) => {
+                {psicosOrdenados.filter(([id]) => !busca.trim() || visibles.some((f) => f.login_id === id && coincide(f))).map(([id, x]) => {
                   const repetidos = [...x.pacientes.values()].filter((n) => n >= 2).length;
                   return (
                     <tr key={id} className="mv-fila" onClick={() => filtrar(id, null, null)} title="Ver sus cancelaciones abajo">
@@ -399,9 +425,20 @@ export function MotivosVivo({
               {filtroPs && <> · {ps(filtroPs)}</>}
               {filtroPac && <> · {nombrePac(detalle[0] ?? ({ paciente: '', paciente_id: filtroPac } as Fila))}</>}
               {filtroMotivo && <> · {filtroMotivo}</>}
+              {busca.trim() && <> · &ldquo;{busca.trim()}&rdquo;</>}
               <span className="mv-sub" style={{ marginLeft: 6 }}>({detalle.length})</span>
             </h3>
-            {hayFiltro && <button className="btn" onClick={() => filtrar(null, null, null)}>Ver todas</button>}
+            {hayFiltro && (
+              <button
+                className="btn"
+                onClick={() => {
+                  setBusca('');
+                  filtrar(null, null, null);
+                }}
+              >
+                Ver todas
+              </button>
+            )}
           </div>
           <div className="tw">
             <table>
