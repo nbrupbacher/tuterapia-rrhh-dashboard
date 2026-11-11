@@ -13,7 +13,7 @@ import { fetchNotes, addNote, deleteNote, type Note } from '@/lib/notes';
 import { markIntervention, unmarkIntervention, fetchTherapistInterventions } from '@/lib/interventions';
 import type { Intervention } from '@/lib/types';
 import { AccionesTalent } from '@/components/FantasmeosVivo';
-import { PerfilHoy } from '@/components/PerfilHoy';
+import { PerfilHoy, MarcoMes } from '@/components/PerfilHoy';
 
 interface Props {
   therapist: TherapistView | null;
@@ -295,8 +295,7 @@ export function TherapistModal({ therapist, userEmail, currentMonth, onClose, on
           </div>
 
           {/* ============ Métricas ============ */}
-          <div className="ms">
-            <div className="mst">Métricas</div>
+          <MarcoMes mes={currentMonth}>
             <div className="mg">
               <div className="mst2">
                 <div className="mv" style={{ color: colorScore(r.score) }}>{r.score}</div>
@@ -406,7 +405,7 @@ export function TherapistModal({ therapist, userEmail, currentMonth, onClose, on
                 );
               })()}
             </div>
-          </div>
+          </MarcoMes>
 
           {/* ============ Hoy en la plataforma (presente, no el mes) ============ */}
           <PerfilHoy key={`hoy-${r.id}`} therapistId={r.id} />
