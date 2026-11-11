@@ -32,6 +32,11 @@ export const maxDuration = 60;
  *   realizadas o canceladas, y a quién está asignado hoy. Para entender por
  *   qué la caída de 1ª sesión de la matriz no coincide con la regla B.
  *
+ * - ?parte=encuesta: encuesta_motivos agrupada por tipo y acción (cuántas,
+ *   primera y última fecha, claves del JSON) y las últimas 20 filas que no son
+ *   cancelar/mover sesión (tipo 2 / acción 1), para ver si ahí llega el pop-up
+ *   de inactividad.
+ *
  * Solo para el Apps Script de Talent (lib/google-script-auth). Borrar cuando
  * se sepa dónde está.
  */
@@ -166,6 +171,24 @@ export async function GET(request: Request) {
         });
         const [[reloj]] = await conn.query<RowDataPacket[]>(`SELECT UTC_TIMESTAMP() AS ahora_utc`);
         return { tid, mes, ahora_utc: reloj?.ahora_utc ?? null, pacientes };
+      }
+      if (parte === 'encuesta') {
+        const [grupos] = await conn.query<RowDataPacket[]>(
+          `SELECT tipo, accion, COUNT(*) AS n, MIN(fecha) AS primera, MAX(fecha) AS ultima,
+                  MAX(CASE WHEN JSON_VALID(data) THEN CAST(JSON_KEYS(data) AS CHAR) END) AS claves
+             FROM encuesta_motivos
+            GROUP BY tipo, accion
+            ORDER BY tipo, accion`,
+        );
+        const [otras] = await conn.query<RowDataPacket[]>(
+          `SELECT idEncuestaMotivo AS id, tipo, accion, idLogin, motivo, motivoTitulo AS titulo,
+                  LEFT(otroMotivoTxt, 200) AS otro, fecha, LEFT(CAST(data AS CHAR), 400) AS data
+             FROM encuesta_motivos
+            WHERE NOT (tipo = 2 AND accion = 1)
+            ORDER BY fecha DESC
+            LIMIT 20`,
+        );
+        return { grupos, otras };
       }
       if (parte === 'tablas') {
         const [filas] = await conn.query<RowDataPacket[]>(
