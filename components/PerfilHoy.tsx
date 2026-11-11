@@ -26,6 +26,7 @@ const RESPUESTAS: Record<string, string> = {
   no_responde: 'No responde',
   pide_derivacion: 'Pide derivación',
   va_a_agendar: 'Va a agendar',
+  no_le_interesa: 'No le interesa',
   motivos_economicos: 'Motivos económicos',
   terapeuta_externo: 'Terapeuta externo',
   atiende_por_fuera: 'Atiende por fuera',
