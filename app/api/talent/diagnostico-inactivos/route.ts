@@ -26,6 +26,12 @@ export const maxDuration = 60;
  *   aproximadas. El activo/inactivo es del listado de cada psicólogo/a, no del
  *   paciente: hay que encontrar dónde lo guarda.
  *
+ * - ?parte=cruce_b&tid=N&mes=AAAA-MM: pacientes que tuvieron la 1ª sesión
+ *   realizada con ese psicólogo/a en ese mes (hora de Argentina), y para cada
+ *   uno todas sus sesiones posteriores (con cualquier psicólogo/a), si están
+ *   realizadas o canceladas, y a quién está asignado hoy. Para entender por
+ *   qué la caída de 1ª sesión de la matriz no coincide con la regla B.
+ *
  * Solo para el Apps Script de Talent (lib/google-script-auth). Borrar cuando
  * se sepa dónde está.
  */
@@ -107,6 +113,59 @@ export async function GET(request: Request) {
            ORDER BY tabla, n DESC`,
         );
         return { ids, logins, encuesta, pacientes_log: log, terapeutas_log: logTer, acciones };
+      }
+      if (parte === 'cruce_b') {
+        const tid = Number(url.searchParams.get('tid'));
+        const mes = url.searchParams.get('mes') ?? '';
+        if (!Number.isInteger(tid) || tid <= 0 || !/^\d{4}-\d{2}$/.test(mes)) return { error: 'Falta tid=N y mes=AAAA-MM' };
+        const [a, m] = mes.split('-').map(Number);
+        const sig = m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, '0')}`;
+        // Mes en hora de Argentina (UTC-3); en la base las sesiones están en UTC.
+        const desde = `${mes}-01 03:00:00`;
+        const hasta = `${sig}-01 03:00:00`;
+        const [prim] = await conn.query<RowDataPacket[]>(
+          `SELECT s.id_paciente AS pid, MIN(s.fecha) AS primera
+             FROM sesiones s
+            WHERE s.realizada = 1 AND s.id_terapeuta = ?
+            GROUP BY s.id_paciente
+           HAVING primera >= ? AND primera < ?
+            ORDER BY primera`,
+          [tid, desde, hasta],
+        );
+        const ids = prim.map((p) => Number(p.pid));
+        if (!ids.length) return { tid, mes, pacientes: [] };
+        const [pacs] = await conn.query<RowDataPacket[]>(
+          `SELECT id_login AS pid, nombre, id_terapeuta AS asignado FROM pacientes WHERE id_login IN (?)`,
+          [ids],
+        );
+        const [ses] = await conn.query<RowDataPacket[]>(
+          `SELECT s.id, s.id_paciente AS pid, s.id_terapeuta AS tid, s.fecha, s.realizada,
+                  (c.idSesion IS NOT NULL) AS cancelada
+             FROM sesiones s
+             LEFT JOIN (
+               SELECT idSesion FROM terapeutas_log WHERE accion = 2 AND idSesion IS NOT NULL
+               UNION
+               SELECT idSesion FROM pacientes_log WHERE accion = 2 AND idSesion IS NOT NULL
+             ) c ON c.idSesion = s.id
+            WHERE s.id_paciente IN (?) AND s.fecha >= ?
+            ORDER BY s.id_paciente, s.fecha`,
+          [ids, desde],
+        );
+        const pacientes = prim.map((p) => {
+          const pid = Number(p.pid);
+          const info = pacs.find((x) => Number(x.pid) === pid);
+          return {
+            pid,
+            nombre: info?.nombre ?? null,
+            asignado_hoy: info ? Number(info.asignado) : null,
+            primera: p.primera,
+            despues: ses
+              .filter((x) => Number(x.pid) === pid && String(x.fecha) > String(p.primera))
+              .map((x) => ({ fecha: x.fecha, tid: Number(x.tid), realizada: Number(x.realizada), cancelada: Number(x.cancelada) })),
+          };
+        });
+        const [[reloj]] = await conn.query<RowDataPacket[]>(`SELECT UTC_TIMESTAMP() AS ahora_utc`);
+        return { tid, mes, ahora_utc: reloj?.ahora_utc ?? null, pacientes };
       }
       if (parte === 'tablas') {
         const [filas] = await conn.query<RowDataPacket[]>(
