@@ -33,7 +33,7 @@ type Estado = 'abierta' | 'derivada_cx' | 'resuelta' | 'descartada';
 type Vista = 'pendientes' | 'derivadas' | 'cerradas';
 type CodRegla = 'A' | 'B' | 'C';
 type Regla = 'T' | CodRegla;
-type Orden = { col: 'dias' | 'psicologo'; dir: 'asc' | 'desc' };
+type Orden = { col: 'dias' | 'psicologo' | 'respuesta'; dir: 'asc' | 'desc' };
 
 type Alerta = {
   id: string;
@@ -105,6 +105,15 @@ const RESPUESTAS_CX: Record<string, string> = {
 // la plataforma. Se resalta para que Talent lo mire como posible desvinculación.
 // "Terapeuta externo" (consiguió otro afuera) no es culpa del psicólogo/a.
 const RESPUESTA_ALERTA = 'atiende_por_fuera';
+
+// Para ordenar "Derivadas a CX" por respuesta: en el orden de la planilla y
+// al final las que todavía no tienen respuesta.
+const ORDEN_RESPUESTA = Object.keys(RESPUESTAS_CX);
+function rangoRespuesta(r: RespuestaCx | null): number {
+  if (!r) return ORDEN_RESPUESTA.length + 1;
+  const i = ORDEN_RESPUESTA.indexOf(r.respuesta);
+  return i === -1 ? ORDEN_RESPUESTA.length : i;
+}
 
 // Planilla compartida con CX. Se llena sola desde app/api/cx/planilla.
 const PLANILLA_CX_URL = 'https://docs.google.com/spreadsheets/d/1dY8PhFHrF2kEO2oaD_W3-tJ-QCnDM58-qrMndUPLTK8/edit';
@@ -279,7 +288,12 @@ export function AlertasVivo({
         const pac = (nombres[String(f.paciente_id)] ?? '').toLowerCase();
         return f.psicologo.toLowerCase().includes(q) || pac.includes(q) || String(f.paciente_id).includes(q);
       });
-    if (orden) {
+    if (orden?.col === 'respuesta' && vista === 'derivadas') {
+      const s = orden.dir === 'asc' ? 1 : -1;
+      const ultima = (f: Fila) => respuestas.get(f.paciente_id)?.[0] ?? null;
+      return out.sort((a, b) => s * (rangoRespuesta(ultima(a)) - rangoRespuesta(ultima(b))) || b.dias - a.dias);
+    }
+    if (orden && orden.col !== 'respuesta') {
       const s = orden.dir === 'asc' ? 1 : -1;
       return orden.col === 'dias'
         ? out.sort((a, b) => s * (a.dias - b.dias))
@@ -290,7 +304,7 @@ export function AlertasVivo({
     return vista === 'cerradas'
       ? out.sort((a, b) => (b.estado_at ?? b.vista_ultima).localeCompare(a.estado_at ?? a.vista_ultima))
       : out.sort((a, b) => b.dias - a.dias);
-  }, [enPais, vista, regla, busqueda, nombres, orden]);
+  }, [enPais, vista, regla, busqueda, nombres, orden, respuestas]);
 
   useEffect(() => setPagina(0), [vista, regla, busqueda, pais, orden]);
 
@@ -551,7 +565,18 @@ export function AlertasVivo({
                   Hace {flecha('dias')}
                 </th>
                 <th className="c-va-det" title="Primer día en que apareció la alerta">Detectada</th>
-                <th className="c-va-est">Estado</th>
+                {vista === 'derivadas' ? (
+                  <th
+                    className={`c-va-est ${orden?.col === 'respuesta' ? 'ths' : ''}`}
+                    title="Última respuesta de CX en la planilla. Tocá para ordenar por respuesta."
+                    onClick={() => ordenarPor('respuesta')}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    Respuesta CX {flecha('respuesta')}
+                  </th>
+                ) : (
+                  <th className="c-va-est">Estado</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -582,8 +607,19 @@ export function AlertasVivo({
                     </td>
                     <td className="c-va-det tm">{ddmm(f.detectada_el)}</td>
                     <td className="c-va-est">
-                      <EstadoBadge f={f} />
-                      {rcx && (
+                      {vista === 'derivadas' ? (
+                        // Ya están todas derivadas: en vez de "Derivada a CX" va
+                        // directo lo que respondió CX.
+                        <>
+                          <span className={`ts ${!rcx ? 'ts-e' : rcx.respuesta === RESPUESTA_ALERTA ? 'ts-d' : 'ts-a'}`}>
+                            {rcx ? RESPUESTAS_CX[rcx.respuesta] ?? rcx.respuesta : 'Sin respuesta'}
+                          </span>
+                          <div className="va-sub">{rcx ? `CX · ${ddmm(rcx.fecha_reporte)}` : 'Esperando a CX'}</div>
+                        </>
+                      ) : (
+                        <EstadoBadge f={f} />
+                      )}
+                      {vista !== 'derivadas' && rcx && (
                         <div className="va-sub" style={rcx.respuesta === RESPUESTA_ALERTA ? { color: 'var(--r)', fontWeight: 600 } : undefined}>
                           CX: {RESPUESTAS_CX[rcx.respuesta] ?? rcx.respuesta}
                         </div>
