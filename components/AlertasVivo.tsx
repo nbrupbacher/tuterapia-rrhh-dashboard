@@ -115,6 +115,12 @@ function rangoRespuesta(r: RespuestaCx | null): number {
   return i === -1 ? ORDEN_RESPUESTA.length : i;
 }
 
+// Chips de "Derivadas a CX": clave de la última respuesta, o SIN_RESP.
+const SIN_RESP = 'sin';
+function claveResp(m: Map<number, RespuestaCx[]>, pid: number): string {
+  return m.get(pid)?.[0]?.respuesta ?? SIN_RESP;
+}
+
 // Planilla compartida con CX. Se llena sola desde app/api/cx/planilla.
 const PLANILLA_CX_URL = 'https://docs.google.com/spreadsheets/d/1dY8PhFHrF2kEO2oaD_W3-tJ-QCnDM58-qrMndUPLTK8/edit';
 
@@ -131,6 +137,13 @@ const ESTILOS = `
 .va-err { background:rgba(240,82,82,.08); border:1px solid rgba(240,82,82,.3); color:var(--r); border-radius:6px; padding:6px 10px; font-size:11px; margin-bottom:8px; }
 .va-res { background:var(--bg2); border:1px solid var(--bd); border-radius:8px; padding:8px 11px; font-size:12px; color:var(--t2); margin-bottom:8px; display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
 .va-res b { color:var(--t); font-family:var(--m); }
+.va-chips { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+.va-chip { background:var(--bg2); border:1px solid var(--bd); border-radius:999px; padding:3px 10px; font-size:11px; color:var(--t2); cursor:pointer; font-family:var(--f); }
+.va-chip b { color:var(--t); font-family:var(--m); }
+.va-chip:hover { border-color:var(--bd2); }
+.va-chip.al { color:var(--r); border-color:rgba(240,82,82,.35); }
+.va-chip.sr { color:var(--t3); }
+.va-chip.on { border-color:var(--ac); background:rgba(79,142,247,.12); color:var(--t); }
 .va-ta { width:100%; min-height:60px; background:var(--bg3); border:1px solid var(--bd2); color:var(--t); border-radius:6px; padding:6px 8px; font-family:var(--f); font-size:12px; resize:vertical; }
 .c-va-r { width:40px; } .c-va-pac { width:200px; } .c-va-ps { width:180px; } .c-va-d { width:150px; }
 .c-va-det { width:74px; } .c-va-est { width:170px; }
@@ -174,6 +187,9 @@ export function AlertasVivo({
   // null = orden por defecto de cada vista; se cambia tocando "Hace" o
   // "Psicólogo/a" (por nombre, para ver cuántos casos se juntan en uno).
   const [orden, setOrden] = useState<Orden | null>(null);
+  // Derivadas a CX: ver solo una respuesta de CX (SIN_RESP = todavía no respondió).
+  const [filtroResp, setFiltroResp] = useState<string | null>(null);
+  useEffect(() => setFiltroResp(null), [vista]);
   const ordenarPor = (col: Orden['col']) =>
     setOrden((o) => ({ col, dir: o?.col === col ? (o.dir === 'asc' ? 'desc' : 'asc') : col === 'dias' ? 'desc' : 'asc' }));
   const flecha = (col: Orden['col']) => (!orden || orden.col !== col ? '↕' : orden.dir === 'asc' ? '↑' : '↓');
@@ -278,9 +294,10 @@ export function AlertasVivo({
 
   const enPais = useMemo(() => filas.filter((f) => pais === 'T' || f.pais === pais), [filas, pais]);
 
-  const visibles = useMemo(() => {
+  // La vista con todos los filtros menos el de respuesta CX: los chips cuentan sobre esto.
+  const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    const out = enPais
+    return enPais
       .filter((f) => f.vista === vista)
       .filter((f) => regla === 'T' || f.regla === regla)
       .filter((f) => {
@@ -288,6 +305,10 @@ export function AlertasVivo({
         const pac = (nombres[String(f.paciente_id)] ?? '').toLowerCase();
         return f.psicologo.toLowerCase().includes(q) || pac.includes(q) || String(f.paciente_id).includes(q);
       });
+  }, [enPais, vista, regla, busqueda, nombres]);
+
+  const visibles = useMemo(() => {
+    const out = filtradas.filter((f) => vista !== 'derivadas' || !filtroResp || claveResp(respuestas, f.paciente_id) === filtroResp);
     if (orden?.col === 'respuesta' && vista === 'derivadas') {
       const s = orden.dir === 'asc' ? 1 : -1;
       const ultima = (f: Fila) => respuestas.get(f.paciente_id)?.[0] ?? null;
@@ -304,9 +325,23 @@ export function AlertasVivo({
     return vista === 'cerradas'
       ? out.sort((a, b) => (b.estado_at ?? b.vista_ultima).localeCompare(a.estado_at ?? a.vista_ultima))
       : out.sort((a, b) => b.dias - a.dias);
-  }, [enPais, vista, regla, busqueda, nombres, orden, respuestas]);
+  }, [filtradas, vista, filtroResp, orden, respuestas]);
 
-  useEffect(() => setPagina(0), [vista, regla, busqueda, pais, orden]);
+  // Derivadas a CX: cuántas hay con cada respuesta (foto de lo que está en curso).
+  const chipsResp = useMemo(() => {
+    if (vista !== 'derivadas' || !filtradas.length) return [];
+    const n = new Map<string, number>();
+    for (const f of filtradas) {
+      const k = claveResp(respuestas, f.paciente_id);
+      n.set(k, (n.get(k) ?? 0) + 1);
+    }
+    const otras = Array.from(n.keys()).filter((k) => k !== SIN_RESP && !ORDEN_RESPUESTA.includes(k));
+    return [...ORDEN_RESPUESTA, ...otras, SIN_RESP]
+      .filter((k) => n.has(k))
+      .map((k) => ({ k, n: n.get(k)!, pct: Math.round((100 * n.get(k)!) / filtradas.length) }));
+  }, [vista, filtradas, respuestas]);
+
+  useEffect(() => setPagina(0), [vista, regla, busqueda, pais, orden, filtroResp]);
 
   const totales = useMemo(() => {
     const hace7 = diaLocal(new Date(Date.now() - 7 * 86_400_000));
@@ -484,9 +519,12 @@ export function AlertasVivo({
       )}
 
       <div className="va-leg">
-        <span><span className="va-r va-rA">A</span> Se registró hace más de 48 h y no agendó con su psicólogo/a.</span>
-        <span><span className="va-r va-rB">B</span> Tuvo la 1ª sesión hace más de 5 días y no tiene otra agendada.</span>
-        <span><span className="va-r va-rC">C</span> Tuvo la 4ª sesión hace más de 14 días y no tiene otra agendada.</span>
+        <span><span className="va-r va-rA">A</span> Se registró hace entre 48 h y {VENTANA_DIAS.A} días y no agendó con su psicólogo/a.</span>
+        <span><span className="va-r va-rB">B</span> Tuvo la 1ª sesión hace entre 5 y {VENTANA_DIAS.B} días y no tiene otra agendada.</span>
+        <span><span className="va-r va-rC">C</span> Tuvo la 4ª sesión hace entre 14 y {VENTANA_DIAS.C} días y no tiene otra agendada.</span>
+        <span>
+          <b>Cerradas:</b> salen solas cuando el paciente agenda (Agendó) o cuando pasa el tope de días sin agendar (Venció sin agendar). Se ven las de los últimos {DIAS_HISTORIA} días.
+        </span>
       </div>
 
       {error && <div className="va-err">{error}</div>}
@@ -529,6 +567,21 @@ export function AlertasVivo({
         )}
         <span className="cnt">{visibles.length} alertas</span>
       </div>
+
+      {chipsResp.length > 0 && (
+        <div className="va-chips">
+          {chipsResp.map((c) => (
+            <button
+              key={c.k}
+              className={`va-chip ${c.k === RESPUESTA_ALERTA ? 'al' : c.k === SIN_RESP ? 'sr' : ''} ${filtroResp === c.k ? 'on' : ''}`}
+              onClick={() => setFiltroResp((x) => (x === c.k ? null : c.k))}
+              title="Tocá para ver solo estos pacientes; otra vez para ver todos"
+            >
+              {c.k === SIN_RESP ? 'Sin respuesta' : RESPUESTAS_CX[c.k] ?? c.k} <b>{c.pct}%</b> ({c.n})
+            </button>
+          ))}
+        </div>
+      )}
 
       {visibles.length === 0 ? (
         <div className="empty-wrap" style={{ padding: '40px 24px' }}>
