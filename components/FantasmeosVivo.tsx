@@ -149,6 +149,9 @@ const MONEDAS: Moneda[] = ['ARS', 'UYU', 'USD'];
 
 const DE_TU_TERAPIA = /@tuterapia\.com\.(uy|ar)$/i;
 
+/** Planilla con las respuestas del form de desvinculación (Talent, 2026-11-13). */
+const PLANILLA_DESV = 'https://docs.google.com/spreadsheets/d/1c-YTCv__2yIX96SkQjgvHsDYMJJkJscTLl4tyetQ7XU/edit?gid=1663499513#gid=1663499513';
+
 function estadoMulta(m: Multa, hoy: string): EstadoM {
   if (m.anulada_el) return 'anulada';
   if (m.pago_confirmado_el) return 'pagada';
@@ -614,7 +617,10 @@ export function FantasmeosVivo({
       {/* ===== Salidas y desvinculaciones ===== */}
       <div className="fd-hd" id="fd-salidas">
         <h3>Salidas y desvinculaciones</h3>
-        <button className="btn" onClick={() => setModal({ tipo: 'nuevaD' })}>+ Registrar salida</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <a className="btn" href={PLANILLA_DESV} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>📄 Respuestas del form ↗</a>
+          <button className="btn" onClick={() => setModal({ tipo: 'nuevaD' })}>+ Registrar salida</button>
+        </div>
       </div>
       <div>
         <button className={`fd-pill ${filtroD === 'curso' ? 'on' : ''}`} onClick={() => setFiltroD('curso')}>En curso<b>{enCurso}</b></button>
@@ -662,7 +668,11 @@ export function FantasmeosVivo({
                   <td className="c-p"><span className={`b ${d.pais === 'AR' ? 'bar' : 'buy'}`}>{d.pais}</span></td>
                   <td>{MOTIVO_D[d.motivo]}</td>
                   <td className="tm">
-                    {ddmm(diaDe(d.form_enviado_at))}
+                    {d.form_enviado_at ? (
+                      <a href={PLANILLA_DESV} target="_blank" rel="noopener noreferrer" title="Ver respuestas del form">{ddmm(diaDe(d.form_enviado_at))}</a>
+                    ) : (
+                      ddmm(diaDe(d.form_enviado_at))
+                    )}
                     {d.form_email && (
                       <div className="fd-sub">{DE_TU_TERAPIA.test(d.form_email) ? 'lo completó Talent' : 'lo completó el psicólogo/a'}</div>
                     )}
