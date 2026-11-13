@@ -24,6 +24,10 @@ import type { Connection, RowDataPacket } from 'mysql2/promise';
  *   Sin excluirlas, inflarían agendadas y sin confirmar; por eso el join
  *   contra los eventos de cancelación, del terapeuta y del paciente.
  * - Chile queda afuera en todo el proyecto: solo AR y UY.
+ * - Realizadas de pacientes nuevos (`realizadas_nuevos`, 2026-11-13): las
+ *   realizadas de pacientes que están en sus primeras 4 semanas con ese
+ *   psicólogo/a, contadas desde su 1ª sesión realizada con él/ella. Es la
+ *   parte "nuevos" de la tendencia (lib/en-vivo-tendencia.ts).
  */
 
 export const LOCAL_OFFSET_HOURS = 3;
@@ -31,11 +35,16 @@ const DIAS_PROXIMOS = 7;
 // Una sesión se cancela antes de su fecha, a veces con semanas de
 // anticipación. Se miran eventos desde bastante antes de la ventana.
 const DIAS_EVENTOS_CANCELACION = 120;
+// La tendencia compara 8 semanas: la ventana arranca por lo menos 9 semanas
+// atrás aunque el mes anterior empiece después.
+const DIAS_MINIMOS_ATRAS = 63;
+const DIAS_PACIENTE_NUEVO = 28;
 
 export type FilaDiario = {
   therapist_id: string;
   dia: string;
   realizadas: number;
+  realizadas_nuevos: number;
   agendadas: number;
   sin_confirmar: number;
   canceladas: number;
@@ -53,7 +62,7 @@ export type FilaTerapeuta = {
 };
 
 export type Ventana = {
-  /** Primer día del mes anterior, local. */
+  /** Primer día del mes anterior, o 9 semanas atrás si es antes; local. */
   desde: string;
   /** Hoy + 7 días, local. */
   hasta: string;
@@ -70,8 +79,9 @@ export function calcularVentana(ahora = new Date()): Ventana {
   const hoy = diaLocal(ahora);
   const [y, m] = hoy.split('-').map(Number);
   const inicioMes = `${y}-${String(m).padStart(2, '0')}-01`;
-  const prev = new Date(Date.UTC(y, m - 2, 1));
-  const desde = prev.toISOString().slice(0, 10);
+  const prev = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
+  const atras = new Date(Date.UTC(y, m - 1, Number(hoy.slice(8, 10)) - DIAS_MINIMOS_ATRAS)).toISOString().slice(0, 10);
+  const desde = atras < prev ? atras : prev;
   const fin = new Date(Date.UTC(y, m - 1, Number(hoy.slice(8, 10)) + DIAS_PROXIMOS));
   const hasta = fin.toISOString().slice(0, 10);
   return { desde, hasta, inicioMes };
@@ -130,6 +140,27 @@ export async function leerEnVivo(
       WHERE s.fecha >= ? AND s.fecha < ?
       GROUP BY tid, dia`,
     [desdeUtc, desdeUtc, desdeUtc, hastaUtc],
+  );
+
+  // 1b. Realizadas de pacientes nuevos: las de pacientes cuya 1ª sesión
+  //     realizada con ese terapeuta fue hace menos de 4 semanas.
+  const [nuevos] = await conn.query<RowDataPacket[]>(
+    `SELECT s.id_terapeuta AS tid,
+            ${DIA_LOCAL('s.fecha')} AS dia,
+            COUNT(*) AS nuevos
+       FROM sesiones s
+       JOIN login l ON l.id = s.id_terapeuta AND ${TERAPEUTA_AR_UY}
+       JOIN (
+         SELECT id_paciente, id_terapeuta, MIN(fecha) AS primera
+           FROM sesiones
+          WHERE realizada = 1
+          GROUP BY id_paciente, id_terapeuta
+         HAVING primera >= ? - INTERVAL ${DIAS_PACIENTE_NUEVO} DAY
+       ) p ON p.id_paciente = s.id_paciente AND p.id_terapeuta = s.id_terapeuta
+      WHERE s.realizada = 1 AND s.fecha >= ? AND s.fecha < ?
+        AND s.fecha < p.primera + INTERVAL ${DIAS_PACIENTE_NUEVO} DAY
+      GROUP BY tid, dia`,
+    [desdeUtc, desdeUtc, hastaUtc],
   );
 
   // 2. Cancelaciones del terapeuta, por el día en que canceló.
@@ -203,7 +234,7 @@ export async function leerEnVivo(
     const key = `${tid}|${dia}`;
     let f = diario.get(key);
     if (!f) {
-      f = { therapist_id: String(tid), dia: String(dia), realizadas: 0, agendadas: 0, sin_confirmar: 0, canceladas: 0 };
+      f = { therapist_id: String(tid), dia: String(dia), realizadas: 0, realizadas_nuevos: 0, agendadas: 0, sin_confirmar: 0, canceladas: 0 };
       diario.set(key, f);
     }
     return f;
@@ -213,6 +244,9 @@ export async function leerEnVivo(
     f.realizadas += Number(r.realizadas);
     f.agendadas += Number(r.agendadas);
     f.sin_confirmar += Number(r.sin_confirmar);
+  }
+  for (const r of nuevos) {
+    fila(r.tid, r.dia).realizadas_nuevos += Number(r.nuevos);
   }
   for (const r of cancelaciones) {
     fila(r.tid, r.dia).canceladas += Number(r.canceladas);

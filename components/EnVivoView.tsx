@@ -1,12 +1,24 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import type { PaisFilter, TherapistView } from '@/lib/types';
 import { AlertasVivo } from '@/components/AlertasVivo';
 import { FantasmeosVivo } from '@/components/FantasmeosVivo';
 import { ResenasVivo } from '@/components/ResenasVivo';
 import { MotivosVivo } from '@/components/MotivosVivo';
+import {
+  calcularTendencia,
+  desdeTendencia,
+  TEXTO_PORQUE,
+  TEXTO_TENDENCIA,
+  UMBRAL_PCT,
+  UMBRAL_SESIONES,
+  type Porque,
+  type Tendencia,
+  type TipoTendencia,
+} from '@/lib/en-vivo-tendencia';
+import { BarrasTendencia, CeldaTendencia, TENDENCIA } from '@/components/TendenciaSesiones';
 
 /**
  * Solapa En vivo → Todos los psicólogos.
@@ -23,6 +35,8 @@ type Diario = {
   therapist_id: string;
   dia: string;
   realizadas: number;
+  /** De las realizadas, las de pacientes en sus primeras 4 semanas. */
+  realizadas_nuevos?: number | null;
   agendadas: number;
   sin_confirmar: number;
   canceladas: number;
@@ -57,10 +71,27 @@ type Fila = {
   diasSinSesion: number | null;
   prox7: number;
   hs: number | null;
+  tend: Tendencia;
 };
 
-type Orden = 'ses' | 'prox7' | 'ult' | 'nombre';
-type Escala = 'dia' | 'semana';
+type Orden = 'tend' | 'ses' | 'prox7' | 'ult' | 'nombre';
+type Escala = '8sem' | 'dia' | 'semana';
+
+// Orden de "Tendencia": primero los que bajan, después estables, suben, nuevos.
+const RANGO_TENDENCIA: Record<TipoTendencia, number> = { baja: 0, estable: 1, sube: 2, nuevo: 3, sin: 4 };
+const TARJETAS: { k: TipoTendencia; icono: string; color: string }[] = [
+  { k: 'sube', icono: '↑', color: 'var(--v)' },
+  { k: 'estable', icono: '→', color: 'var(--t2)' },
+  { k: 'baja', icono: '↓', color: 'var(--r)' },
+  { k: 'nuevo', icono: '✦', color: 'var(--ac)' },
+];
+const COLOR_PORQUE: Record<Porque, string> = {
+  pierde_continuidad: 'r',
+  menos_nuevos: 'am',
+  crece_nuevos: 'v',
+  mas_mismos: 'v',
+  primeras_semanas: 'ac',
+};
 type Sub = 'alertas' | 'todos' | 'fantasmeos' | 'resenas' | 'motivos';
 
 // Estilos propios de la solapa, con las variables de globals.css. Viven acá
@@ -74,6 +105,23 @@ const ESTILOS = `
 .vv-leg { display:flex; gap:12px; flex-wrap:wrap; font-size:10px; color:var(--t2); margin-bottom:6px; }
 .vv-leg i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
 .vv-c-bar { width:170px; }
+.vv-tend { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:8px; margin:8px 0; }
+.vv-tk { background:var(--bg2); border:1px solid var(--bd); border-radius:8px; padding:8px 11px; cursor:pointer; border-left:3px solid var(--c); }
+.vv-tk:hover { border-color:var(--bd2); border-left-color:var(--c); }
+.vv-tk.on { background:rgba(79,142,247,.1); border-color:var(--ac); border-left-color:var(--c); }
+.vv-tk .kv { color:var(--c); }
+.vv-chips { display:flex; gap:6px; flex-wrap:wrap; margin:-2px 0 8px; }
+.vv-chip { background:var(--bg2); border:1px solid var(--bd); border-radius:999px; padding:3px 10px; font-size:11px; color:var(--t2); cursor:pointer; font-family:var(--f); }
+.vv-chip b { color:var(--t); font-family:var(--m); }
+.vv-chip.on { border-color:var(--ac); background:rgba(79,142,247,.12); color:var(--t); }
+.vv-td { font-family:var(--m); font-size:12px; white-space:nowrap; }
+.vv-td small { display:block; font-size:10px; color:var(--t3); }
+.vv-pq { display:inline-block; font-size:10.5px; padding:2px 7px; border-radius:10px; white-space:nowrap; border:1px solid var(--bd2); color:var(--t2); background:var(--bg2); }
+.vv-pq.r { color:var(--r); border-color:rgba(240,82,82,.4); background:rgba(240,82,82,.1); }
+.vv-pq.am { color:var(--am); border-color:rgba(245,166,35,.4); background:rgba(245,166,35,.1); }
+.vv-pq.v { color:var(--v); border-color:rgba(52,211,153,.35); background:rgba(52,211,153,.1); }
+.vv-pq.ac { color:var(--ac); border-color:rgba(79,142,247,.4); background:rgba(79,142,247,.1); }
+@media (max-width:700px) { .vv-tend { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
 `;
 
 const POR_PAGINA = 50;
@@ -128,9 +176,11 @@ export function EnVivoView({
   // Arranca en Alertas: es lo que el equipo trabaja todos los días.
   const [sub, setSub] = useState<Sub>('alertas');
   const [busqueda, setBusqueda] = useState('');
-  const [orden, setOrden] = useState<Orden>('ses');
-  const [escala, setEscala] = useState<Escala>('dia');
+  const [orden, setOrden] = useState<Orden>('tend');
+  const [escala, setEscala] = useState<Escala>('8sem');
   const [soloAgendaVacia, setSoloAgendaVacia] = useState(false);
+  const [filtroTend, setFiltroTend] = useState<TipoTendencia | null>(null);
+  const [filtroPorque, setFiltroPorque] = useState<Porque | null>(null);
   const [pagina, setPagina] = useState(0);
 
   const hoy = hoyLocal();
@@ -142,6 +192,9 @@ export function EnVivoView({
   const inicioMesAnt = `${mesAnt}-01`;
   const nombreMes = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('es-UY', { month: 'long', timeZone: 'UTC' });
   const nombreMesAnt = prev.toLocaleDateString('es-UY', { month: 'short', timeZone: 'UTC' });
+  // La tendencia necesita 8 semanas: a principio de mes, más que el mes anterior.
+  const desdeTend = desdeTendencia(hoy);
+  const desdeLectura = desdeTend < inicioMesAnt ? desdeTend : inicioMesAnt;
 
   useEffect(() => {
     let vivo = true;
@@ -149,7 +202,7 @@ export function EnVivoView({
       try {
         const sb = getSupabase();
         const [d, t, s] = await Promise.all([
-          leerTodo<Diario>('en_vivo_diario', inicioMesAnt),
+          leerTodo<Diario>('en_vivo_diario', desdeLectura),
           leerTodo<Terapeuta>('en_vivo_terapeuta'),
           sb.from('en_vivo_sync').select('corrida_en').eq('ok', true).order('corrida_en', { ascending: false }).limit(1),
         ]);
@@ -166,7 +219,7 @@ export function EnVivoView({
     return () => {
       vivo = false;
     };
-  }, [inicioMesAnt]);
+  }, [desdeLectura]);
 
   const filas = useMemo<Fila[]>(() => {
     const matrixPor = new Map(therapists.map((t) => [t.id, t]));
@@ -219,17 +272,39 @@ export function EnVivoView({
           : null,
         prox7: t.agendadas_7d,
         hs: t.horas_disp,
+        tend: calcularTendencia(propias, hoy),
       };
     });
   }, [terapeutas, diario, therapists, nDias, hoy, inicioMes, mesAnt, d]);
 
-  const visibles = useMemo(() => {
+  // Todos los filtros menos el de tendencia: las tarjetas cuentan sobre esto.
+  const base = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    const out = filas
+    return filas
       .filter((f) => pais === 'T' || f.pais === pais)
       .filter((f) => !q || f.nombre.toLowerCase().includes(q))
       .filter((f) => !soloAgendaVacia || f.prox7 === 0);
+  }, [filas, pais, busqueda, soloAgendaVacia]);
+
+  const conteoTend = useMemo(() => {
+    const n: Record<TipoTendencia, number> = { sube: 0, estable: 0, baja: 0, nuevo: 0, sin: 0 };
+    const pq: Partial<Record<Porque, number>> = {};
+    for (const f of base) {
+      n[f.tend.tipo] += 1;
+      if (f.tend.porque) pq[f.tend.porque] = (pq[f.tend.porque] ?? 0) + 1;
+    }
+    return { n, pq };
+  }, [base]);
+
+  const visibles = useMemo(() => {
+    const out = base
+      .filter((f) => !filtroTend || f.tend.tipo === filtroTend)
+      .filter((f) => !filtroPorque || f.tend.porque === filtroPorque);
     const cmp: Record<Orden, (a: Fila, b: Fila) => number> = {
+      tend: (a, b) =>
+        RANGO_TENDENCIA[a.tend.tipo] - RANGO_TENDENCIA[b.tend.tipo] ||
+        (a.tend.pct ?? 0) - (b.tend.pct ?? 0) ||
+        (a.tend.ahora - a.tend.antes) - (b.tend.ahora - b.tend.antes),
       ses: (a, b) => b.sesAlDia - a.sesAlDia,
       prox7: (a, b) => b.prox7 - a.prox7,
       // Sin sesión nunca va al final: no es "el que más días lleva".
@@ -237,15 +312,23 @@ export function EnVivoView({
       nombre: (a, b) => a.nombre.localeCompare(b.nombre, 'es'),
     };
     return out.sort(cmp[orden]);
-  }, [filas, pais, busqueda, soloAgendaVacia, orden]);
+  }, [base, filtroTend, filtroPorque, orden]);
 
-  useEffect(() => setPagina(0), [pais, busqueda, soloAgendaVacia, orden]);
+  useEffect(() => setPagina(0), [pais, busqueda, soloAgendaVacia, orden, filtroTend, filtroPorque]);
 
   // Escala común a todas las filas, así una barra alta significa lo mismo en
   // cualquier terapeuta. Percentil 95 para que un día atípico no aplaste al
   // resto.
   const topeBarra = useMemo(() => {
     const totales: number[] = [];
+    if (escala === '8sem') {
+      for (const f of visibles) {
+        for (const s of f.tend.semanas) totales.push(s.sig + s.nue);
+        totales.push(f.prox7);
+      }
+      totales.sort((a, b) => a - b);
+      return Math.max(8, totales[Math.floor(totales.length * 0.95)] ?? 0);
+    }
     for (const f of visibles) {
       const grupos = escala === 'dia' ? f.dias : semanas(f.dias);
       for (const r of grupos) totales.push(r.realizadas + r.agendadas + r.sin_confirmar + r.canceladas);
@@ -371,6 +454,39 @@ export function EnVivoView({
         </div>
       </div>
 
+      <div
+        className="vv-tend"
+        title={`Últimas 4 semanas contra las 4 anteriores. Sube o baja si cambia al menos ${UMBRAL_PCT}% y al menos ${UMBRAL_SESIONES} sesiones.`}
+      >
+        {TARJETAS.map((t) => (
+          <div
+            key={t.k}
+            className={`vv-tk ${filtroTend === t.k ? 'on' : ''}`}
+            style={{ ['--c' as string]: t.color } as CSSProperties}
+            onClick={() => {
+              setFiltroTend((x) => (x === t.k ? null : t.k));
+              setFiltroPorque(null);
+            }}
+          >
+            <div className="kv">{t.icono} {conteoTend.n[t.k]}</div>
+            <div className="kl">{t.k === 'nuevo' ? 'Nuevos (sin sesiones antes)' : TEXTO_TENDENCIA[t.k]}</div>
+          </div>
+        ))}
+      </div>
+      {(filtroTend === 'baja' || filtroTend === 'sube') && (
+        <div className="vv-chips">
+          {(filtroTend === 'baja' ? (['pierde_continuidad', 'menos_nuevos'] as Porque[]) : (['crece_nuevos', 'mas_mismos'] as Porque[])).map((p) => (
+            <button
+              key={p}
+              className={`vv-chip ${filtroPorque === p ? 'on' : ''}`}
+              onClick={() => setFiltroPorque((x) => (x === p ? null : p))}
+            >
+              {TEXTO_PORQUE[p]} <b>{conteoTend.pq[p] ?? 0}</b>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="ctr">
         <div className="sw">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -380,10 +496,12 @@ export function EnVivoView({
           <input className="si" placeholder="Buscar psicólogo..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
         </div>
         <div className="tog">
+          <button className={`togb ${escala === '8sem' ? 'on' : ''}`} onClick={() => setEscala('8sem')}>8 semanas</button>
           <button className={`togb ${escala === 'dia' ? 'on' : ''}`} onClick={() => setEscala('dia')}>Por día</button>
           <button className={`togb ${escala === 'semana' ? 'on' : ''}`} onClick={() => setEscala('semana')}>Por semana</button>
         </div>
         <select value={orden} onChange={(e) => setOrden(e.target.value as Orden)}>
+          <option value="tend">Ordenar: tendencia (los que bajan primero)</option>
           <option value="ses">Ordenar: sesiones al día ↓</option>
           <option value="prox7">Ordenar: agendadas próx. 7 días ↓</option>
           <option value="ult">Ordenar: días sin sesión ↓</option>
@@ -396,13 +514,24 @@ export function EnVivoView({
         <span className="cnt">{visibles.length} terapeutas</span>
       </div>
 
-      <div className="vv-leg">
-        <span><i style={{ background: COLOR.realizadas }} />Realizadas</span>
-        <span><i style={{ background: COLOR.sin_confirmar }} />Sin confirmar</span>
-        <span><i style={{ background: COLOR.agendadas }} />Agendadas</span>
-        <span><i style={{ background: COLOR.canceladas }} />Canceladas por el psicólogo</span>
-        <span style={{ color: 'var(--t3)' }}>· cada barrita es un {escala === 'dia' ? 'día' : 'tramo de 7 días'} de {nombreMes}; la línea marca hoy</span>
-      </div>
+      {escala === '8sem' ? (
+        <div className="vv-leg">
+          <span><i style={{ background: TENDENCIA.sig }} />Pacientes que siguen</span>
+          <span><i style={{ background: TENDENCIA.nue }} />Pacientes nuevos (primeras 4 semanas)</span>
+          <span><i style={{ border: '1px dashed var(--t2)' }} />Agendadas próx. 7 días</span>
+          <span style={{ color: 'var(--t3)' }}>
+            · sesiones realizadas por semana; las 4 claras son las anteriores y las 4 fuertes, las últimas
+          </span>
+        </div>
+      ) : (
+        <div className="vv-leg">
+          <span><i style={{ background: COLOR.realizadas }} />Realizadas</span>
+          <span><i style={{ background: COLOR.sin_confirmar }} />Sin confirmar</span>
+          <span><i style={{ background: COLOR.agendadas }} />Agendadas</span>
+          <span><i style={{ background: COLOR.canceladas }} />Canceladas por el psicólogo</span>
+          <span style={{ color: 'var(--t3)' }}>· cada barrita es un {escala === 'dia' ? 'día' : 'tramo de 7 días'} de {nombreMes}; la línea marca hoy</span>
+        </div>
+      )}
 
       <div className="tw">
         <table>
@@ -410,7 +539,16 @@ export function EnVivoView({
             <tr>
               <th className="c-n">Terapeuta</th>
               <th className="c-p">País</th>
-              <th className="vv-c-bar">{nombreMes}, {escala === 'dia' ? 'día a día' : 'por semana'}</th>
+              <th className="vv-c-bar">{escala === '8sem' ? 'Últimas 8 semanas' : `${nombreMes}, ${escala === 'dia' ? 'día a día' : 'por semana'}`}</th>
+              <th
+                className="vv-td"
+                style={{ cursor: 'pointer' }}
+                onClick={() => setOrden('tend')}
+                title="Sesiones realizadas de las últimas 4 semanas contra las 4 anteriores. Tocá para ordenar."
+              >
+                Tendencia {orden === 'tend' ? '↑' : ''}
+              </th>
+              <th title="Qué explica más el cambio: los pacientes que siguen o los nuevos">Por qué</th>
               <th className="c-se" title={`Sesiones realizadas del 1 al ${d}, contra el mismo tramo de ${nombreMesAnt}`}>Ses. al {d}</th>
               <th className="c-pa" title="Pacientes con al menos una sesión realizada este mes">Pac. activos</th>
               <th className="c-rm" title="Registros del mes asignados hoy a este psicólogo">Reg. {nombreMes.slice(0, 3)}</th>
@@ -434,7 +572,17 @@ export function EnVivoView({
                   <td className="c-n tn" style={{ color: f.matrix ? undefined : 'var(--t2)' }}>{f.nombre}</td>
                   <td className="c-p"><span className={`b ${f.pais === 'AR' ? 'bar' : 'buy'}`}>{f.pais}</span></td>
                   <td className="vv-c-bar">
-                    <Barras grupos={escala === 'dia' ? f.dias : semanas(f.dias)} hoyIdx={escala === 'dia' ? d - 1 : Math.floor((d - 1) / 7)} tope={topeBarra} />
+                    {escala === '8sem' ? (
+                      <BarrasTendencia t={f.tend} prox7={f.prox7} tope={topeBarra} />
+                    ) : (
+                      <Barras grupos={escala === 'dia' ? f.dias : semanas(f.dias)} hoyIdx={escala === 'dia' ? d - 1 : Math.floor((d - 1) / 7)} tope={topeBarra} />
+                    )}
+                  </td>
+                  <td className="vv-td">
+                    <CeldaTendencia t={f.tend} />
+                  </td>
+                  <td>
+                    {f.tend.porque ? <span className={`vv-pq ${COLOR_PORQUE[f.tend.porque]}`}>{TEXTO_PORQUE[f.tend.porque]}</span> : <span style={{ color: 'var(--t3)' }}>—</span>}
                   </td>
                   <td className="c-se tm">
                     <span>{f.sesAlDia}</span>

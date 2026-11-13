@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { getSupabase } from '@/lib/supabase';
+import { PerfilTendencia } from '@/components/TendenciaSesiones';
 
 /**
  * Perfil del psicólogo/a → "Hoy en la plataforma". El resto del perfil puede
@@ -12,6 +13,8 @@ import { getSupabase } from '@/lib/supabase';
  * - Lo que respondió CX sobre sus pacientes (respuestas_cx), con
  *   "Atiende por fuera" destacado.
  * - Reseñas: promedio de 90 días contra el anterior, y bajas sin revisar.
+ * - Sesiones por semana de las últimas 8 semanas, con la tendencia
+ *   (components/TendenciaSesiones.tsx).
  */
 
 type Datos = {
@@ -162,6 +165,9 @@ export function PerfilHoy({ therapistId }: { therapistId: string }) {
           <div className="ph-vacio" style={{ color: 'var(--r)' }}>No se pudo cargar: {error}</div>
         ) : (
           <div className="ph-grid">
+            {/* Tendencia de sesiones, a lo ancho */}
+            <PerfilTendencia therapistId={therapistId} />
+
             {/* Cancelaciones */}
             <div className="ph-card" style={card(c?.total ? COLOR.cancel : GRIS)}>
               <div className="ph-top">
