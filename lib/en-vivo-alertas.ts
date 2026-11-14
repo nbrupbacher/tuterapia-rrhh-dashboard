@@ -24,6 +24,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  * referencia) y solo toca `vista_ultima`: el estado que puso el equipo no se
  * pisa. Lo que deja de aparecer queda con `vista_ultima` vieja, que en la
  * bandeja es "se resolvió sola".
+ *
+ * Después, `derivarAutomaticas` pasa a CX las B y C nuevas del día (ver abajo).
  */
 
 const CANCELADAS = `
@@ -149,4 +151,35 @@ export async function guardarAlertas(
     }
   }
   return out;
+}
+
+/**
+ * Reglas que pasan solas a CX cada mañana (Talent, 2026-11-14). Antes Talent
+ * tocaba "Derivar a CX" todos los días con las B y C nuevas; ahora lo hace el
+ * cron y la planilla Rescate CX las toma en su próxima sincronización (cada
+ * hora). La A no: Talent no la deriva.
+ */
+export const REGLAS_AUTO_CX = ['B', 'C'] as const;
+
+/** Lo que queda en `estado_por` cuando deriva el cron y no una persona. */
+export const DERIVADA_POR_CRON = 'automático (07:00)';
+
+/**
+ * Deriva a CX las alertas B y C abiertas que se detectaron hoy y siguen
+ * vigentes. Solo las de hoy: una alerta vieja que sigue abierta es porque
+ * alguien la dejó así o la volvió a pendiente, y eso no se pisa. Devuelve
+ * cuántas derivó, o el error.
+ */
+export async function derivarAutomaticas(sb: SupabaseClient, hoy: string): Promise<number | string> {
+  const ahora = new Date().toISOString();
+  const { data, error } = await sb
+    .from('alertas_vivo')
+    .update({ estado: 'derivada_cx', estado_por: DERIVADA_POR_CRON, estado_at: ahora, updated_at: ahora })
+    .in('regla', [...REGLAS_AUTO_CX])
+    .eq('estado', 'abierta')
+    .eq('detectada_el', hoy)
+    .eq('vista_ultima', hoy)
+    .select('id');
+  if (error) return `Supabase: ${error.message}`;
+  return data?.length ?? 0;
 }
