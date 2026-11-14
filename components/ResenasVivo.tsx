@@ -134,6 +134,8 @@ export function ResenasVivo({
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState<number | null>(null);
   const [verRevisadas, setVerRevisadas] = useState(false);
+  // Filtro por psicólogo/a (o paciente): se aplica a las tres secciones.
+  const [busqueda, setBusqueda] = useState('');
   // Psicólogos/as que no están en la Matrix del mes (por ejemplo, dados de
   // baja): el nombre sale de `therapists`, como en Fantasmeos y salidas.
   const [ters, setTers] = useState<Map<string, { nombre: string; activo: boolean }>>(new Map());
@@ -196,7 +198,15 @@ export function ResenasVivo({
   const promedioDe = useMemo(() => new Map((datos?.promedios ?? []).map((p) => [p.therapist_id, p])), [datos]);
 
   const hoy = diaLocal(new Date());
-  const resenas = useMemo(() => (datos?.resenas ?? []).filter((r) => enPais(r.pais)), [datos, enPais]);
+  const q = busqueda.trim().toLowerCase();
+  const coincide = useCallback(
+    (id: string, paciente = '') => !q || nombreDe(id).toLowerCase().includes(q) || paciente.toLowerCase().includes(q),
+    [q, nombreDe],
+  );
+  const resenas = useMemo(
+    () => (datos?.resenas ?? []).filter((r) => enPais(r.pais) && coincide(r.therapist_id, r.paciente ?? '')),
+    [datos, enPais, coincide],
+  );
   const mirarTodas = resenas.filter((r) => r.estrellas <= 3);
   const mirarPend = mirarTodas.filter((r) => !revisiones.get(r.id)?.revisada_at);
   const mirar = verRevisadas ? mirarTodas : mirarPend;
@@ -204,11 +214,11 @@ export function ResenasVivo({
   const cambios = useMemo(
     () =>
       (datos?.promedios ?? [])
-        .filter((p) => enPais(p.pais) && p.ahora != null && p.antes != null && p.n_ahora >= MIN_RESENAS && p.n_antes >= MIN_RESENAS)
+        .filter((p) => enPais(p.pais) && coincide(p.therapist_id) && p.ahora != null && p.antes != null && p.n_ahora >= MIN_RESENAS && p.n_antes >= MIN_RESENAS)
         .map((p) => ({ ...p, mov: (p.ahora as number) - (p.antes as number) }))
         .filter((p) => Math.abs(p.mov) >= MOVIMIENTO)
         .sort((a, b) => a.mov - b.mov),
-    [datos, enPais],
+    [datos, enPais, coincide],
   );
 
   async function guardar(r: Resena, tipo: 'mirar' | 'reconocer', campos: Partial<Revision> & { ticker_texto?: string | null }) {
@@ -329,6 +339,21 @@ export function ResenasVivo({
           <div className="kv" style={{ color: 'var(--v)' }}>{reconocer.length}</div>
           <div className="kl">Para reconocer · 5 estrellas con comentario</div>
         </div>
+      </div>
+
+      <div className="ctr" style={{ marginTop: 10 }}>
+        <div className="sw">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input className="si" placeholder="Filtrar por psicólogo/a o paciente..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
+        </div>
+        {q && (
+          <button className="btn" onClick={() => setBusqueda('')}>
+            Ver todos
+          </button>
+        )}
       </div>
 
       <div className="rs-hd" id="rs-mirar">
