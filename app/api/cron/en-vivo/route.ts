@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { withMysql } from '@/lib/mysql';
 import { isCronAuthorized } from '@/lib/cron-auth';
 import { calcularVentana, diaLocal, leerEnVivo } from '@/lib/en-vivo-sync';
-import { guardarAlertas, leerAlertas } from '@/lib/en-vivo-alertas';
+import { derivarAutomaticas, guardarAlertas, leerAlertas } from '@/lib/en-vivo-alertas';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,9 +24,10 @@ export const maxDuration = 60;
  * Cada corrida, buena o mala, deja una fila en `en_vivo_sync`: de ahí sale el
  * "Datos al" de la pantalla.
  *
- * Después, aparte, actualiza `alertas_vivo` (lib/en-vivo-alertas.ts). Va
- * segundo y con su propio try: si las alertas fallan o tardan de más, los
- * números de la solapa ya quedaron guardados.
+ * Después, aparte, actualiza `alertas_vivo` (lib/en-vivo-alertas.ts) y deriva
+ * a CX las B y C nuevas del día. Va segundo y con su propio try: si las
+ * alertas fallan o tardan de más, los números de la solapa ya quedaron
+ * guardados.
  */
 export async function GET(request: Request) {
   if (!isCronAuthorized(request)) {
@@ -56,8 +57,10 @@ export async function GET(request: Request) {
 
     let alertas: Record<string, number | string> | string;
     try {
-      const filas = await withMysql((conn) => leerAlertas(conn, diaLocal(new Date())));
+      const hoy = diaLocal(new Date());
+      const filas = await withMysql((conn) => leerAlertas(conn, hoy));
       alertas = await guardarAlertas(sb, filas);
+      alertas.derivadas_cx = await derivarAutomaticas(sb, hoy);
     } catch (e) {
       alertas = e instanceof Error ? e.message : 'error desconocido';
       console.error('[cron/en-vivo] alertas falló', e);
