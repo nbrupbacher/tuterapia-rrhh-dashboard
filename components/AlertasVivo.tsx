@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import type { PaisFilter, TherapistView } from '@/lib/types';
+import { Ojito } from '@/components/Ojito';
 
 /**
  * Solapa En vivo → Alertas: pacientes para rescatar.
@@ -652,7 +653,7 @@ export function AlertasVivo({
                       <div className="tn">{nombrePaciente(f)}</div>
                       <div className="va-sub tm">#{f.paciente_id}</div>
                     </td>
-                    <td className="c-va-ps tn" style={{ color: f.matrix ? undefined : 'var(--t2)' }}>{f.psicologo}</td>
+                    <td className="c-va-ps tn" style={{ color: f.matrix ? undefined : 'var(--t2)' }}>{f.psicologo}<Ojito t={f.matrix} /></td>
                     <td className="c-p">{f.pais === '—' ? '—' : <span className={`b ${f.pais === 'AR' ? 'bar' : 'buy'}`}>{f.pais}</span>}</td>
                     <td className="c-va-d" title={motivo(f)}>
                       <span className="tm" style={{ color: f.dias >= 14 ? 'var(--r)' : f.dias >= 7 ? 'var(--am)' : undefined }}>{f.dias} días</span>
@@ -753,7 +754,7 @@ function Caso({
         <div className="mh">
           <div>
             <div className="mn2">{nombre}</div>
-            <div className="mm">Paciente #{f.paciente_id} · {f.psicologo} ({f.pais})</div>
+            <div className="mm">Paciente #{f.paciente_id} · {f.psicologo}<Ojito t={f.matrix} /> ({f.pais})</div>
           </div>
           <button className="mcl" onClick={onCerrar}>✕</button>
         </div>
