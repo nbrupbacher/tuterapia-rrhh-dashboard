@@ -19,6 +19,7 @@ import {
   type TipoTendencia,
 } from '@/lib/en-vivo-tendencia';
 import { BarrasTendencia, CeldaTendencia, TENDENCIA } from '@/components/TendenciaSesiones';
+import { Ojito } from '@/components/Ojito';
 
 /**
  * Solapa En vivo → Todos los psicólogos.
@@ -569,7 +570,7 @@ export function EnVivoView({
                   style={{ cursor: f.matrix ? 'pointer' : 'default' }}
                   title={f.matrix ? undefined : 'No figura entre los terapeutas activos de la Matrix'}
                 >
-                  <td className="c-n tn" style={{ color: f.matrix ? undefined : 'var(--t2)' }}>{f.nombre}</td>
+                  <td className="c-n tn" style={{ color: f.matrix ? undefined : 'var(--t2)' }}>{f.nombre}<Ojito t={f.matrix} /></td>
                   <td className="c-p"><span className={`b ${f.pais === 'AR' ? 'bar' : 'buy'}`}>{f.pais}</span></td>
                   <td className="vv-c-bar">
                     {escala === '8sem' ? (

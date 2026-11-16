@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getSupabase } from '@/lib/supabase';
 import type { PaisFilter, TherapistView } from '@/lib/types';
+import { Ojito } from '@/components/Ojito';
 
 /**
  * Solapa En vivo → Fantasmeos y salidas. Reemplaza la hoja "Monitorear".
@@ -547,6 +548,7 @@ export function FantasmeosVivo({
                 <tr key={f.id}>
                   <td className="c-n">
                     <span className={`tn ${mx ? 'fd-tn' : ''}`} onClick={() => mx && onRowClick(mx)}>{nombreDe(f.therapist_id)}</span>
+                    <Ojito t={mx} />
                     {antes > 0 && <div className="fd-sub">Fantasmeado {antes === 1 ? '1 vez' : `${antes} veces`} antes</div>}
                   </td>
                   <td className="c-p"><span className={`b ${paisDe(f.therapist_id) === 'AR' ? 'bar' : 'buy'}`}>{paisDe(f.therapist_id)}</span></td>
@@ -600,7 +602,7 @@ export function FantasmeosVivo({
             <tbody>
               {cerrados.map((f) => (
                 <tr key={f.id}>
-                  <td className="c-n tn">{nombreDe(f.therapist_id)}</td>
+                  <td className="c-n tn">{nombreDe(f.therapist_id)}<Ojito t={matrixPor.get(f.therapist_id)} /></td>
                   <td className="c-p"><span className={`b ${paisDe(f.therapist_id) === 'AR' ? 'bar' : 'buy'}`}>{paisDe(f.therapist_id)}</span></td>
                   <td className="tm">{ddmm(f.desde)}</td>
                   <td className="tm">{ddmm(f.hasta)}</td>
@@ -663,6 +665,7 @@ export function FantasmeosVivo({
                 <tr key={d.id}>
                   <td className="c-n">
                     <span className={`tn ${mx ? 'fd-tn' : ''}`} onClick={() => mx && onRowClick(mx)}>{d.nombre}</span>
+                    <Ojito t={mx} />
                     {d.nota && <div className="fd-nota fd-sub">{d.nota}</div>}
                   </td>
                   <td className="c-p"><span className={`b ${d.pais === 'AR' ? 'bar' : 'buy'}`}>{d.pais}</span></td>
@@ -774,6 +777,7 @@ export function FantasmeosVivo({
                 <tr key={m.id}>
                   <td className="c-n">
                     <span className={`tn ${mx ? 'fd-tn' : ''}`} onClick={() => mx && onRowClick(mx)}>{nombreDe(m.therapist_id)}</span>
+                    <Ojito t={mx} />
                     {m.nota && <div className="fd-nota fd-sub">{m.nota}</div>}
                   </td>
                   <td className="c-p"><span className={`b ${paisDe(m.therapist_id) === 'AR' ? 'bar' : 'buy'}`}>{paisDe(m.therapist_id)}</span></td>

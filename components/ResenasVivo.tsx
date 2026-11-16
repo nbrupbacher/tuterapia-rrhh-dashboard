@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import type { PaisFilter, TherapistView } from '@/lib/types';
+import { Ojito } from '@/components/Ojito';
 
 /**
  * Solapa En vivo → Reseñas (mockup de Talent).
@@ -279,6 +280,7 @@ export function ResenasVivo({
         <div style={{ marginTop: 4 }}>
           <span className="rs-ps" style={{ color: estiloPs(r.therapist_id).color }} title={estiloPs(r.therapist_id).title} onClick={() => mx && onRowClick(mx)}>
             {nombreDe(r.therapist_id)}
+                  <Ojito t={mx} />
           </span>{' '}
           <span className={`b ${r.pais === 'AR' ? 'bar' : 'buy'}`}>{r.pais}</span>
         </div>

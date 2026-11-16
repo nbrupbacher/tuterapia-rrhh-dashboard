@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import type { PaisFilter, TherapistView } from '@/lib/types';
+import { Ojito } from '@/components/Ojito';
 
 /**
  * Solapa En vivo → Motivos: lo que cargan los psicólogos/as en la plataforma
@@ -289,6 +290,7 @@ export function MotivosVivo({
         }}
       >
         {nombreDe(id)}
+        <Ojito t={mx} />
       </span>
     );
   };
