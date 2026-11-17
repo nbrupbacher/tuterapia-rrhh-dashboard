@@ -1,0 +1,21 @@
+/* Solapa Reclutamiento (components/ReclutamientoView.tsx). Usa las clases
+   generales de globals.css (tabla, tarjetas, modal, pastillas .sit-*). */
+.rc-err{background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.3);color:var(--am);border-radius:7px;padding:8px 11px;font-size:12px;margin:8px 0}
+.rc-sub{font-size:10.5px;color:var(--t2)}
+.rc-mono{font-family:var(--m);font-size:11px;color:var(--t2)}
+.rc-chk{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--t2);cursor:pointer;white-space:nowrap}
+tbody tr.rc-alerta{box-shadow:inset 3px 0 0 var(--r)}
+.rc-dec{display:inline-block;padding:1px 7px;border-radius:5px;font-size:10.5px;font-weight:600}
+.rc-dec-avanza{background:rgba(52,211,153,.12);color:var(--v)}
+.rc-dec-no_avanza{background:rgba(240,82,82,.12);color:#ff7676}
+.rc-dec-en_espera{background:rgba(245,166,35,.12);color:var(--am)}
+.rc-box{background:var(--bg3);border:1px solid var(--bd);border-radius:7px;padding:8px 10px;font-size:12px}
+.rc-box-r{border-color:rgba(240,82,82,.45);background:rgba(240,82,82,.06)}
+.rc-resp{margin-bottom:7px;font-size:12px;white-space:pre-wrap}
+.rc-ta{width:100%;min-height:60px;margin-top:6px;background:var(--bg3);border:1px solid var(--bd2);border-radius:6px;color:var(--t);font-family:var(--f);font-size:12px;padding:7px 9px;resize:vertical;outline:none}
+.rc-ta:focus{border-color:var(--ac)}
+.rc-btn:disabled{opacity:.4;cursor:not-allowed}
+.rc-b-avanza:not(:disabled){border-color:rgba(52,211,153,.5);color:var(--v)}
+.rc-b-no:not(:disabled){border-color:rgba(240,82,82,.5);color:#ff7676}
+/* La tabla general corta el texto en una línea; acá nombre + mail van en dos. */
+.rc-tabla td{white-space:normal}

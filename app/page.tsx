@@ -15,6 +15,7 @@ import { GrowthView } from '@/components/GrowthView';
 import { IntervenidosView } from '@/components/IntervenidosView';
 import { NovedadesTicker } from '@/components/NovedadesTicker';
 import { EnVivoView } from '@/components/EnVivoView';
+import { ReclutamientoView } from '@/components/ReclutamientoView';
 import { segmento } from '@/lib/helpers';
 import { fetchActiveInterventions } from '@/lib/interventions';
 import type { AccionId, SituacionId } from '@/lib/constants-matrix';
@@ -311,6 +312,8 @@ export default function DashboardPage() {
         {/* En vivo va antes del aviso de "sin datos": no depende del CSV mensual. */}
         {view === 'vivo' ? (
           <EnVivoView pais={pais} therapists={therapists} onRowClick={setSelectedTherapist} />
+        ) : view === 'reclu' ? (
+          <ReclutamientoView pais={pais} userEmail={userEmail} />
         ) : therapists.length === 0 ? (
           <div className="empty-wrap"><h3>No hay datos cargados todavía</h3></div>
         ) : view === 'prog' ? (
