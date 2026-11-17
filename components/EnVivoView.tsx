@@ -7,6 +7,7 @@ import { AlertasVivo } from '@/components/AlertasVivo';
 import { FantasmeosVivo } from '@/components/FantasmeosVivo';
 import { ResenasVivo } from '@/components/ResenasVivo';
 import { MotivosVivo } from '@/components/MotivosVivo';
+import { RegistrosVivo } from '@/components/RegistrosVivo';
 import {
   calcularTendencia,
   desdeTendencia,
@@ -29,7 +30,8 @@ import { Ojito } from '@/components/Ojito';
  *
  * Alertas vive en components/AlertasVivo.tsx; Fantasmeos y salidas, en
  * components/FantasmeosVivo.tsx; Reseñas, en components/ResenasVivo.tsx; Motivos
- * (cancelaciones y pacientes inactivos), en components/MotivosVivo.tsx.
+ * (cancelaciones y pacientes inactivos), en components/MotivosVivo.tsx; Registros
+ * (hitos de 50 y 100 y divisiones por psicólogo/a), en components/RegistrosVivo.tsx.
  */
 
 type Diario = {
@@ -93,7 +95,7 @@ const COLOR_PORQUE: Record<Porque, string> = {
   mas_mismos: 'v',
   primeras_semanas: 'ac',
 };
-type Sub = 'alertas' | 'todos' | 'fantasmeos' | 'resenas' | 'motivos';
+type Sub = 'alertas' | 'todos' | 'fantasmeos' | 'resenas' | 'motivos' | 'registros';
 
 // Estilos propios de la solapa, con las variables de globals.css. Viven acá
 // para que todo lo de En vivo esté en un solo archivo.
@@ -374,6 +376,7 @@ export function EnVivoView({
         <div className={`tab ${sub === 'fantasmeos' ? 'on' : ''}`} onClick={() => setSub('fantasmeos')}>Fantasmeos y salidas</div>
         <div className={`tab ${sub === 'resenas' ? 'on' : ''}`} onClick={() => setSub('resenas')}>Reseñas</div>
         <div className={`tab ${sub === 'motivos' ? 'on' : ''}`} onClick={() => setSub('motivos')}>Motivos</div>
+        <div className={`tab ${sub === 'registros' ? 'on' : ''}`} onClick={() => setSub('registros')}>Registros</div>
       </div>
       <div className="vv-sync">
         {sync ? `Datos al ${fechaHora(sync.corrida_en)}` : 'Sin sincronización todavía'}
@@ -381,6 +384,16 @@ export function EnVivoView({
       </div>
     </div>
   );
+
+  if (sub === 'registros') {
+    return (
+      <>
+        <style>{ESTILOS}</style>
+        {barra}
+        <RegistrosVivo pais={pais} therapists={therapists} onRowClick={onRowClick} />
+      </>
+    );
+  }
 
   if (sub === 'motivos') {
     return (
