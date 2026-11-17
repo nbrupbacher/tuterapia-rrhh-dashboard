@@ -79,6 +79,10 @@ const ESTILOS = `
 .rg-fila.on td { background:rgba(79,142,247,.1); }
 .rg-n { font-family:var(--m); font-size:12px; white-space:nowrap; }
 .rg-n small { color:var(--t3); margin-left:4px; font-size:10px; }
+/* La tabla global corta con ellipsis: la celda de registros baja el hito a otra línea. */
+.rg-reg { overflow:visible !important; white-space:normal !important; text-overflow:clip !important; min-width:120px; }
+.rg-reg .rg-hito { display:table; margin:3px 0 0; }
+.rg-reg small { display:block; margin:2px 0 0; }
 .rg-hito { display:inline-block; font-size:10px; padding:1px 6px; border-radius:10px; margin-left:6px; border:1px solid var(--bd2); color:var(--t2); white-space:nowrap; }
 .rg-hito.nuevo { color:var(--ac); border-color:rgba(79,142,247,.5); background:rgba(79,142,247,.12); }
 .rg-sn { display:inline-block; font-size:10.5px; padding:2px 7px; border-radius:10px; white-space:nowrap; }
@@ -340,7 +344,7 @@ export function RegistrosVivo({
                       <Ojito t={f.mx} />
                     </td>
                     <td className="c-p"><span className={`b ${f.pais === 'AR' ? 'bar' : 'buy'}`}>{f.pais}</span></td>
-                    <td className="rg-n">
+                    <td className="rg-n rg-reg">
                       {f.registros}
                       {hito ? (
                         <span className={`rg-hito ${f.hitoReciente ? 'nuevo' : ''}`} title={`Llegó a ${hito} el ${ddmmaa(fechaHito)}`}>
