@@ -17,7 +17,8 @@ import { Ojito } from '@/components/Ojito';
  * - "Para reconocer": 50+ registros, 10 puntos o más arriba en continuidad y
  *   no por debajo en llegada.
  * El símbolo del hito sigue la misma regla: 🚩 si es "Para mirar" (conversión
- * baja), si no 🏅 50 / 🏆 100.
+ * baja), si no 🏅 50 / 🏆 100. 🚨 super alerta: 15+
+ * puntos por debajo (Talent, 2026-11-19).
  * No va a CX: es para Talent.
  */
 
@@ -38,6 +39,7 @@ type Psico = {
   con_2da: number;
   hito_50: string | null;
   hito_100: string | null;
+  tasas?: Record<string, { registros_maduros: number; llegaron: number; primeras_maduras: number; con_2da: number }>;
 };
 type Paciente = {
   paciente_id: number;
@@ -49,7 +51,7 @@ type Paciente = {
   primera: string | null;
   ultima: string | null;
 };
-type Senal = 'mirar' | 'reconocer' | null;
+type Senal = 'alerta' | 'mirar' | 'estandar' | 'reconocer' | null;
 type Fila = Psico & {
   nombre: string;
   mx: TherapistView | undefined;
@@ -59,12 +61,19 @@ type Fila = Psico & {
   hitoReciente: 50 | 100 | null;
 };
 type Col = 'nombre' | 'registros' | 'atendidos' | 'sin_1ra' | 'solo_1ra' | 'activo' | 'dejo' | 'llegada' | 'continuidad';
-type Filtro = 'todos' | '100' | '50' | 'reciente' | 'ok' | 'mirar' | 'reconocer';
+type Filtro = 'todos' | '100' | '50' | 'reciente' | 'ok' | 'mirar' | 'alerta' | 'reconocer';
 
 const PUNTOS = 10;
+const PUNTOS_ALERTA = 15;
 const MIN_REGISTROS = 50;
 const MIN_MUESTRA = 10;
 const DIAS_RECIENTE = 30;
+/** Período de las tasas y señales; la clave son días hacia atrás ('0' = histórico). */
+const PERIODOS: [string, string][] = [['0', 'Histórico'], ['90', '90 días'], ['60', '60 días'], ['30', '30 días']];
+
+/** Conversión baja: 🚩 desde PUNTOS por debajo del promedio, 🚨 desde PUNTOS_ALERTA. */
+const esBaja = (s: Senal) => s === 'mirar' || s === 'alerta';
+const SIMBOLO_BAJA: Partial<Record<NonNullable<Senal>, string>> = { mirar: '🚩', alerta: '🚨' };
 
 const DIVISIONES: { k: Division; label: string; ayuda: string; color?: string }[] = [
   { k: 'sin_1ra', label: 'Sin 1ra sesión', ayuda: 'Nunca tuvieron una sesión realizada con este psicólogo/a', color: 'var(--am)' },
@@ -92,6 +101,9 @@ const ESTILOS = `
 .rg-hito.baja { color:var(--r); border-color:rgba(240,82,82,.5); background:rgba(240,82,82,.1); }
 .rg-sn { display:inline-block; font-size:10.5px; padding:2px 7px; border-radius:10px; white-space:nowrap; }
 .rg-sn.mirar { color:var(--r); border:1px solid rgba(240,82,82,.4); background:rgba(240,82,82,.1); }
+.rg-reglas { font-size:11px; color:var(--t2); border:1px solid var(--bd2); border-radius:6px; padding:8px 10px; margin:0 0 8px; line-height:1.6; }
+.rg-sn.estandar { color:var(--t2); border:1px solid var(--bd2); }
+.rg-sn.alerta { color:#fff; border:1px solid var(--r); background:var(--r); font-weight:600; }
 .rg-sn.reconocer { color:var(--v); border:1px solid rgba(52,211,153,.35); background:rgba(52,211,153,.1); }
 .rg-bar { display:flex; height:8px; width:120px; border-radius:3px; overflow:hidden; background:var(--bg4); }
 .rg-det { background:var(--bg2); padding:10px 12px !important; }
@@ -105,6 +117,12 @@ const ESTILOS = `
 
 const pct = (n: number, d: number) => (d >= MIN_MUESTRA ? n / d : null);
 const fmtPct = (x: number | null) => (x == null ? '—' : `${Math.round(x * 100)}%`);
+/** Puntos contra el promedio de Tu Terapia, p. ej. "(−12)" o "(+8)". */
+const difProm = (x: number | null, p: number | null) => {
+  if (x == null || p == null) return '';
+  const d = Math.round((x - p) * 100);
+  return d === 0 ? '(=)' : `(${d > 0 ? '+' : '−'}${Math.abs(d)})`;
+};
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 function ddmmaa(iso: string | null): string {
@@ -128,7 +146,11 @@ export function RegistrosVivo({
   onRowClick: (t: TherapistView) => void;
 }) {
   const [psicos, setPsicos] = useState<Psico[]>([]);
-  const [prom, setProm] = useState<{ llegada: number | null; continuidad: number | null }>({ llegada: null, continuidad: null });
+  const [promTotal, setProm] = useState<{ llegada: number | null; continuidad: number | null }>({ llegada: null, continuidad: null });
+  const [proms, setProms] = useState<Record<string, { llegada: number | null; continuidad: number | null }>>({});
+  const [periodo, setPeriodo] = useState('0');
+  const [mad, setMad] = useState({ registro: 30, primera: 35 });
+  const prom = proms[periodo] ?? promTotal;
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nombres, setNombres] = useState<Map<string, string>>(new Map());
@@ -150,6 +172,8 @@ export function RegistrosVivo({
         const ps = ((json.psicologos ?? []) as Psico[]).map((p) => ({ ...p, atendidos: p.atendidos ?? p.registros - p.sin_1ra }));
         setPsicos(ps);
         setProm(json.promedio ?? { llegada: null, continuidad: null });
+        setProms(json.promedios ?? {});
+        if (json.maduracion) setMad(json.maduracion);
         // Psicólogos/as que no están en la Matrix del mes: nombre desde `therapists`.
         const faltan = ps.map((p) => p.therapist_id).filter((id) => !matrixPor.has(id));
         const m = new Map<string, string>();
@@ -190,14 +214,17 @@ export function RegistrosVivo({
     const reciente = (iso: string | null) => Boolean(iso && ahora - new Date(iso).getTime() <= DIAS_RECIENTE * 86_400_000);
     return psicos.map((p) => {
       const mx = matrixPor.get(p.therapist_id);
-      const llegada = pct(p.llegaron, p.registros_maduros);
-      const continuidad = pct(p.con_2da, p.primeras_maduras);
+      const t = p.tasas?.[periodo] ?? p;
+      const llegada = pct(t.llegaron, t.registros_maduros);
+      const continuidad = pct(t.con_2da, t.primeras_maduras);
       let senal: Senal = null;
-      if (p.registros >= MIN_REGISTROS && prom.llegada != null && prom.continuidad != null) {
+      if (p.registros >= MIN_REGISTROS && (llegada != null || continuidad != null) && prom.llegada != null && prom.continuidad != null) {
         const dL = llegada == null ? 0 : (llegada - prom.llegada) * 100;
         const dC = continuidad == null ? 0 : (continuidad - prom.continuidad) * 100;
-        if (dL <= -PUNTOS || dC <= -PUNTOS) senal = 'mirar';
+        if (dL <= -PUNTOS_ALERTA || dC <= -PUNTOS_ALERTA) senal = 'alerta';
+        else if (dL <= -PUNTOS || dC <= -PUNTOS) senal = 'mirar';
         else if (dC >= PUNTOS && dL > -PUNTOS / 2) senal = 'reconocer';
+        else senal = 'estandar';
       }
       const hitoReciente: 50 | 100 | null = reciente(p.hito_100) ? 100 : reciente(p.hito_50) ? 50 : null;
       return {
@@ -210,7 +237,7 @@ export function RegistrosVivo({
         hitoReciente,
       };
     });
-  }, [psicos, matrixPor, nombres, prom]);
+  }, [psicos, matrixPor, nombres, prom, periodo]);
 
   const enPais = useMemo(() => filas.filter((f) => pais === 'T' || f.pais === pais), [filas, pais]);
 
@@ -220,7 +247,8 @@ export function RegistrosVivo({
       '100': enPais.filter((f) => f.registros >= 100).length,
       '50': enPais.filter((f) => f.registros >= 50 && f.registros < 100).length,
       reciente: enPais.filter((f) => f.hitoReciente).length,
-      ok: enPais.filter((f) => f.registros >= MIN_REGISTROS && f.senal !== 'mirar').length,
+      ok: enPais.filter((f) => (f.senal === 'estandar' || f.senal === 'reconocer')).length,
+      alerta: enPais.filter((f) => f.senal === 'alerta').length,
       mirar: enPais.filter((f) => f.senal === 'mirar').length,
       reconocer: enPais.filter((f) => f.senal === 'reconocer').length,
     }),
@@ -235,7 +263,8 @@ export function RegistrosVivo({
         case '100': return f.registros >= 100;
         case '50': return f.registros >= 50 && f.registros < 100;
         case 'reciente': return Boolean(f.hitoReciente);
-        case 'ok': return f.registros >= MIN_REGISTROS && f.senal !== 'mirar';
+        case 'ok': return (f.senal === 'estandar' || f.senal === 'reconocer');
+        case 'alerta': return f.senal === 'alerta';
         case 'mirar': return f.senal === 'mirar';
         case 'reconocer': return f.senal === 'reconocer';
         default: return true;
@@ -308,17 +337,35 @@ export function RegistrosVivo({
         {tarjeta('50', cuenta['50'], '50 a 99 registros')}
         {tarjeta('reciente', cuenta.reciente, `Llegaron a 50 o 100 registros (últ. ${DIAS_RECIENTE} días)`, 'var(--ac)')}
         {tarjeta('ok', cuenta.ok, '🏆 Hito con conversión esperada', 'var(--v)', `50+ registros y llegada a la 1ra y vuelta a la 2da sin estar ${PUNTOS} puntos o más por debajo del promedio`)}
-        {tarjeta('mirar', cuenta.mirar, '🚩 Hito con conversión baja', 'var(--r)', `50+ registros y ${PUNTOS} puntos o más por debajo del promedio en llegada a la 1ra o en continuidad a la 2da`)}
-        {tarjeta('reconocer', cuenta.reconocer, '⭐ Destacados', 'var(--ac)', `50+ registros y ${PUNTOS} puntos o más por encima del promedio en continuidad a la 2da`)}
+        {tarjeta('alerta', cuenta.alerta, '🚨 Super alerta', 'var(--r)', `50+ registros y ${PUNTOS_ALERTA} puntos o más por debajo del promedio en llegada a la 1ra o en continuidad a la 2da`)}
+        {tarjeta('mirar', cuenta.mirar, '🚩 Hito con conversión baja', 'var(--r)', `50+ registros y entre ${PUNTOS} y ${PUNTOS_ALERTA - 1} puntos por debajo del promedio en llegada a la 1ra o en continuidad a la 2da`)}
+        {tarjeta('reconocer', cuenta.reconocer, '🏆 Destacados', 'var(--ac)', `50+ registros y ${PUNTOS} puntos o más por encima del promedio en continuidad a la 2da`)}
       </div>
       <div className="rg-sub">
         Promedio Tu Terapia: <b>{fmtPct(prom.llegada)}</b> de los registros llega a la 1ra sesión y <b>{fmtPct(prom.continuidad)}</b> de los
         que tienen la 1ra vuelve a una 2da. Registros = todos los pacientes históricos asignados o atendidos por cada psicólogo/a; los hitos
         de 50 y 100 se cuentan sobre registros. Atendidos = los que hicieron la 1ra sesión.
       </div>
+      <div className="rg-reglas">
+        <b>Cómo se lee.</b> <b>Llegada 1ra</b>: % de los registros que hizo la 1ra sesión. <b>Vuelven a 2da</b>: de los que hicieron la 1ra,
+        % que hizo también una 2da con el mismo psicólogo/a. Entre paréntesis, puntos por encima (+) o por debajo (−) del promedio de Tu
+        Terapia.
+        <br />
+        <b>Señal</b> (desde {MIN_REGISTROS} registros y {MIN_MUESTRA} casos): 🏆 Destacado = {PUNTOS}+ puntos arriba en vuelta a 2da · ✅
+        Estándar · 🚩 = {PUNTOS} a {PUNTOS_ALERTA - 1} puntos abajo en alguna de las dos · 🚨 = {PUNTOS_ALERTA}+ puntos abajo. La medalla del
+        hito (🏅 50 · 🏆 100 registros) cambia a 🚩 o 🚨 si la conversión está baja.
+        <br />
+        <b>Períodos</b>: cuentan solo lo que ya tuvo tiempo de dar resultado. "30 días" son los registros de hace {mad.registro + 30} a{' '}
+        {mad.registro} días y las 1ras sesiones de hace {mad.primera + 30} a {mad.primera} días. Los hitos son siempre históricos.
+      </div>
 
       <div className="rg-tabs">
         <input className="rg-busca" type="search" placeholder="Buscar psicólogo/a" value={busca} onChange={(e) => setBusca(e.target.value)} />
+        {PERIODOS.map(([k, label]) => (
+          <button key={k} className={`btn ${periodo === k ? 'on' : ''}`} onClick={() => setPeriodo(k)} title="Período para llegada, vuelta a 2da y señales (solo registros que ya tuvieron tiempo). Los hitos son siempre históricos">
+            {label}
+          </button>
+        ))}
         <span className="cnt">{visibles.length} psicólogos/as</span>
       </div>
 
@@ -328,15 +375,15 @@ export function RegistrosVivo({
             <tr>
               {th('nombre', 'Psicólogo/a')}
               <th className="c-p">País</th>
-              {th('registros', 'Registros', 'Total histórico. Hito de 50 y 100 registros: 🏅/🏆 con la conversión esperada, 🚩 con conversión baja; en azul, si llegó en los últimos 30 días')}
+              {th('registros', 'Registros', 'Total histórico. Hito de 50 y 100 registros: 🏅/🏆 con la conversión esperada, 🚩 con conversión baja, 🚨 si está 15+ puntos abajo; en azul, si llegó en los últimos 30 días')}
               {th('atendidos', 'Atendidos', 'Registros que hicieron la 1ra sesión con este psicólogo/a')}
               <th title="Cómo se reparten los registros">Reparto</th>
               {th('sin_1ra', 'Sin 1ra', DIVISIONES[0].ayuda)}
               {th('solo_1ra', '1ra sin 2da', DIVISIONES[1].ayuda)}
               {th('activo', 'Activos', DIVISIONES[2].ayuda)}
               {th('dejo', 'Dejaron', DIVISIONES[3].ayuda)}
-              {th('llegada', 'Llegada 1ra', 'De los registros de hace más de 30 días, % que tuvo la 1ra sesión')}
-              {th('continuidad', 'Vuelven a 2da', 'De los que tuvieron la 1ra hace más de 35 días, % que tuvo una 2da')}
+              {th('llegada', 'Llegada 1ra', 'De los registros de hace más de 30 días, % que tuvo la 1ra sesión. Entre paréntesis, puntos por encima o por debajo del promedio')}
+              {th('continuidad', 'Vuelven a 2da', 'De los que tuvieron la 1ra hace más de 35 días, % que tuvo una 2da. Entre paréntesis, puntos por encima o por debajo del promedio')}
               <th>Señal</th>
             </tr>
           </thead>
@@ -357,8 +404,8 @@ export function RegistrosVivo({
                     <td className="rg-n rg-reg">
                       {f.registros}
                       {hito ? (
-                        <span className={`rg-hito ${f.hitoReciente ? 'nuevo' : ''} ${f.senal === 'mirar' ? 'baja' : ''}`} title={`Llegó a ${hito} registros el ${ddmmaa(fechaHito)}${f.senal === 'mirar' ? ', con conversión por debajo del promedio' : ''}`}>
-                          {f.senal === 'mirar' ? '🚩' : hito === 100 ? '🏆' : '🏅'} {hito} · {ddmmaa(fechaHito)}
+                        <span className={`rg-hito ${f.hitoReciente ? 'nuevo' : ''} ${esBaja(f.senal) ? 'baja' : ''}`} title={`Llegó a ${hito} registros el ${ddmmaa(fechaHito)}${esBaja(f.senal) ? ', con conversión por debajo del promedio' : ''}`}>
+                          {(f.senal && SIMBOLO_BAJA[f.senal]) || (hito === 100 ? '🏆' : '🏅')} {hito} · {ddmmaa(fechaHito)}
                         </span>
                       ) : f.registros >= 40 ? (
                         <small>faltan {50 - f.registros} para 50</small>
@@ -380,11 +427,13 @@ export function RegistrosVivo({
                     {celda(f, 'solo_1ra')}
                     {celda(f, 'activo')}
                     {celda(f, 'dejo')}
-                    <td className="rg-n" style={{ color: vsProm(f.llegada, prom.llegada) }}>{fmtPct(f.llegada)}</td>
-                    <td className="rg-n" style={{ color: vsProm(f.continuidad, prom.continuidad) }}>{fmtPct(f.continuidad)}</td>
+                    <td className="rg-n" style={{ color: vsProm(f.llegada, prom.llegada) }}>{fmtPct(f.llegada)}<small>{difProm(f.llegada, prom.llegada)}</small></td>
+                    <td className="rg-n" style={{ color: vsProm(f.continuidad, prom.continuidad) }}>{fmtPct(f.continuidad)}<small>{difProm(f.continuidad, prom.continuidad)}</small></td>
                     <td>
+                      {f.senal === 'alerta' && <span className="rg-sn alerta">🚨 Super alerta</span>}
                       {f.senal === 'mirar' && <span className="rg-sn mirar">🚩 Conversión baja</span>}
-                      {f.senal === 'reconocer' && <span className="rg-sn reconocer">⭐ Destacado</span>}
+                      {f.senal === 'estandar' && <span className="rg-sn estandar">✅ Estándar</span>}
+                      {f.senal === 'reconocer' && <span className="rg-sn reconocer">🏆 Destacado</span>}
                     </td>
                   </tr>
                   {on && (
