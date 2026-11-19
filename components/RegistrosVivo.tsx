@@ -112,6 +112,12 @@ const ESTILOS = `
 
 const pct = (n: number, d: number) => (d >= MIN_MUESTRA ? n / d : null);
 const fmtPct = (x: number | null) => (x == null ? '—' : `${Math.round(x * 100)}%`);
+/** Puntos contra el promedio de Tu Terapia, p. ej. "(−12)" o "(+8)". */
+const difProm = (x: number | null, p: number | null) => {
+  if (x == null || p == null) return '';
+  const d = Math.round((x - p) * 100);
+  return d === 0 ? '(=)' : `(${d > 0 ? '+' : '−'}${Math.abs(d)})`;
+};
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 function ddmmaa(iso: string | null): string {
@@ -346,8 +352,8 @@ export function RegistrosVivo({
               {th('solo_1ra', '1ra sin 2da', DIVISIONES[1].ayuda)}
               {th('activo', 'Activos', DIVISIONES[2].ayuda)}
               {th('dejo', 'Dejaron', DIVISIONES[3].ayuda)}
-              {th('llegada', 'Llegada 1ra', 'De los registros de hace más de 30 días, % que tuvo la 1ra sesión')}
-              {th('continuidad', 'Vuelven a 2da', 'De los que tuvieron la 1ra hace más de 35 días, % que tuvo una 2da')}
+              {th('llegada', 'Llegada 1ra', 'De los registros de hace más de 30 días, % que tuvo la 1ra sesión. Entre paréntesis, puntos por encima o por debajo del promedio')}
+              {th('continuidad', 'Vuelven a 2da', 'De los que tuvieron la 1ra hace más de 35 días, % que tuvo una 2da. Entre paréntesis, puntos por encima o por debajo del promedio')}
               <th>Señal</th>
             </tr>
           </thead>
@@ -391,8 +397,8 @@ export function RegistrosVivo({
                     {celda(f, 'solo_1ra')}
                     {celda(f, 'activo')}
                     {celda(f, 'dejo')}
-                    <td className="rg-n" style={{ color: vsProm(f.llegada, prom.llegada) }}>{fmtPct(f.llegada)}</td>
-                    <td className="rg-n" style={{ color: vsProm(f.continuidad, prom.continuidad) }}>{fmtPct(f.continuidad)}</td>
+                    <td className="rg-n" style={{ color: vsProm(f.llegada, prom.llegada) }}>{fmtPct(f.llegada)}<small>{difProm(f.llegada, prom.llegada)}</small></td>
+                    <td className="rg-n" style={{ color: vsProm(f.continuidad, prom.continuidad) }}>{fmtPct(f.continuidad)}<small>{difProm(f.continuidad, prom.continuidad)}</small></td>
                     <td>
                       {f.senal === 'alerta' && <span className="rg-sn alerta">🚨 Super alerta</span>}
                       {f.senal === 'mirar' && <span className="rg-sn mirar">🚩 Conversión baja</span>}
