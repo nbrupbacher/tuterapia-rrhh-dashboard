@@ -339,7 +339,7 @@ export function RegistrosVivo({
         {tarjeta('ok', cuenta.ok, '🏆 Hito con conversión esperada', 'var(--v)', `50+ registros y llegada a la 1ra y vuelta a la 2da sin estar ${PUNTOS} puntos o más por debajo del promedio`)}
         {tarjeta('alerta', cuenta.alerta, '🚨 Super alerta', 'var(--r)', `50+ registros y ${PUNTOS_ALERTA} puntos o más por debajo del promedio en llegada a la 1ra o en continuidad a la 2da`)}
         {tarjeta('mirar', cuenta.mirar, '🚩 Hito con conversión baja', 'var(--r)', `50+ registros y entre ${PUNTOS} y ${PUNTOS_ALERTA - 1} puntos por debajo del promedio en llegada a la 1ra o en continuidad a la 2da`)}
-        {tarjeta('reconocer', cuenta.reconocer, '⭐ Destacados', 'var(--ac)', `50+ registros y ${PUNTOS} puntos o más por encima del promedio en continuidad a la 2da`)}
+        {tarjeta('reconocer', cuenta.reconocer, '🏆 Destacados', 'var(--ac)', `50+ registros y ${PUNTOS} puntos o más por encima del promedio en continuidad a la 2da`)}
       </div>
       <div className="rg-sub">
         Promedio Tu Terapia: <b>{fmtPct(prom.llegada)}</b> de los registros llega a la 1ra sesión y <b>{fmtPct(prom.continuidad)}</b> de los
@@ -351,7 +351,7 @@ export function RegistrosVivo({
         % que hizo también una 2da con el mismo psicólogo/a. Entre paréntesis, puntos por encima (+) o por debajo (−) del promedio de Tu
         Terapia.
         <br />
-        <b>Señal</b> (desde {MIN_REGISTROS} registros y {MIN_MUESTRA} casos): ⭐ Destacado = {PUNTOS}+ puntos arriba en vuelta a 2da · ✅
+        <b>Señal</b> (desde {MIN_REGISTROS} registros y {MIN_MUESTRA} casos): 🏆 Destacado = {PUNTOS}+ puntos arriba en vuelta a 2da · ✅
         Estándar · 🚩 = {PUNTOS} a {PUNTOS_ALERTA - 1} puntos abajo en alguna de las dos · 🚨 = {PUNTOS_ALERTA}+ puntos abajo. La medalla del
         hito (🏅 50 · 🏆 100 registros) cambia a 🚩 o 🚨 si la conversión está baja.
         <br />
@@ -433,7 +433,7 @@ export function RegistrosVivo({
                       {f.senal === 'alerta' && <span className="rg-sn alerta">🚨 Super alerta</span>}
                       {f.senal === 'mirar' && <span className="rg-sn mirar">🚩 Conversión baja</span>}
                       {f.senal === 'estandar' && <span className="rg-sn estandar">✅ Estándar</span>}
-                      {f.senal === 'reconocer' && <span className="rg-sn reconocer">⭐ Destacado</span>}
+                      {f.senal === 'reconocer' && <span className="rg-sn reconocer">🏆 Destacado</span>}
                     </td>
                   </tr>
                   {on && (
