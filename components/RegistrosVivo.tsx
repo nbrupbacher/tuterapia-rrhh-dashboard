@@ -10,12 +10,14 @@ import { Ojito } from '@/components/Ojito';
  *
  * Registros históricos de cada psicólogo/a, partidos en cuatro divisiones que
  * suman el total: sin 1ra sesión, 1ra sin 2da, siguen activos y dejaron.
- * Los hitos de 50 y 100 cuentan pacientes atendidos (con la 1ra sesión
- * realizada), no registros (Talent, 2026-11-19). Compara la llegada a la 1ra y
- * la continuidad a la 2da contra el promedio de la plataforma:
+ * Marca los hitos de 50 y 100 REGISTROS (Talent, 2026-11-19: registros, no
+ * pacientes atendidos; Atendidos queda como columna informativa). Compara la
+ * llegada a la 1ra y la continuidad a la 2da contra el promedio:
  * - "Para mirar": 50+ registros y 10 puntos o más por debajo en alguna.
  * - "Para reconocer": 50+ registros, 10 puntos o más arriba en continuidad y
  *   no por debajo en llegada.
+ * El símbolo del hito sigue la misma regla: 🚩 si es "Para mirar" (conversión
+ * baja), si no 🏅 50 / 🏆 100.
  * No va a CX: es para Talent.
  */
 
@@ -57,7 +59,7 @@ type Fila = Psico & {
   hitoReciente: 50 | 100 | null;
 };
 type Col = 'nombre' | 'registros' | 'atendidos' | 'sin_1ra' | 'solo_1ra' | 'activo' | 'dejo' | 'llegada' | 'continuidad';
-type Filtro = 'todos' | '100' | '50' | 'reciente' | 'mirar' | 'reconocer';
+type Filtro = 'todos' | '100' | '50' | 'reciente' | 'ok' | 'mirar' | 'reconocer';
 
 const PUNTOS = 10;
 const MIN_REGISTROS = 50;
@@ -81,12 +83,13 @@ const ESTILOS = `
 .rg-fila.on td { background:rgba(79,142,247,.1); }
 .rg-n { font-family:var(--m); font-size:12px; white-space:nowrap; }
 .rg-n small { color:var(--t3); margin-left:4px; font-size:10px; }
-/* La tabla global corta con ellipsis: la celda de atendidos baja el hito a otra línea. */
+/* La tabla global corta con ellipsis: la celda de registros baja el hito a otra línea. */
 .rg-reg { overflow:visible !important; white-space:normal !important; text-overflow:clip !important; min-width:120px; }
 .rg-reg .rg-hito { display:table; margin:3px 0 0; }
 .rg-reg small { display:block; margin:2px 0 0; }
 .rg-hito { display:inline-block; font-size:10px; padding:1px 6px; border-radius:10px; margin-left:6px; border:1px solid var(--bd2); color:var(--t2); white-space:nowrap; }
 .rg-hito.nuevo { color:var(--ac); border-color:rgba(79,142,247,.5); background:rgba(79,142,247,.12); }
+.rg-hito.baja { color:var(--r); border-color:rgba(240,82,82,.5); background:rgba(240,82,82,.1); }
 .rg-sn { display:inline-block; font-size:10.5px; padding:2px 7px; border-radius:10px; white-space:nowrap; }
 .rg-sn.mirar { color:var(--r); border:1px solid rgba(240,82,82,.4); background:rgba(240,82,82,.1); }
 .rg-sn.reconocer { color:var(--v); border:1px solid rgba(52,211,153,.35); background:rgba(52,211,153,.1); }
@@ -131,7 +134,7 @@ export function RegistrosVivo({
   const [nombres, setNombres] = useState<Map<string, string>>(new Map());
   const [filtro, setFiltro] = useState<Filtro>('todos');
   const [busca, setBusca] = useState('');
-  const [orden, setOrden] = useState<{ col: Col; asc: boolean }>({ col: 'atendidos', asc: false });
+  const [orden, setOrden] = useState<{ col: Col; asc: boolean }>({ col: 'registros', asc: false });
   const [abierto, setAbierto] = useState<string | null>(null);
   const [division, setDivision] = useState<Division>('solo_1ra');
   const [pacientes, setPacientes] = useState<Record<string, Paciente[] | 'cargando' | string>>({});
@@ -214,9 +217,10 @@ export function RegistrosVivo({
   const cuenta = useMemo(
     () => ({
       todos: enPais.length,
-      '100': enPais.filter((f) => f.atendidos >= 100).length,
-      '50': enPais.filter((f) => f.atendidos >= 50 && f.atendidos < 100).length,
+      '100': enPais.filter((f) => f.registros >= 100).length,
+      '50': enPais.filter((f) => f.registros >= 50 && f.registros < 100).length,
       reciente: enPais.filter((f) => f.hitoReciente).length,
+      ok: enPais.filter((f) => f.registros >= MIN_REGISTROS && f.senal !== 'mirar').length,
       mirar: enPais.filter((f) => f.senal === 'mirar').length,
       reconocer: enPais.filter((f) => f.senal === 'reconocer').length,
     }),
@@ -228,9 +232,10 @@ export function RegistrosVivo({
     const out = enPais.filter((f) => {
       if (q && !norm(f.nombre).includes(q) && !f.therapist_id.includes(q)) return false;
       switch (filtro) {
-        case '100': return f.atendidos >= 100;
-        case '50': return f.atendidos >= 50 && f.atendidos < 100;
+        case '100': return f.registros >= 100;
+        case '50': return f.registros >= 50 && f.registros < 100;
         case 'reciente': return Boolean(f.hitoReciente);
+        case 'ok': return f.registros >= MIN_REGISTROS && f.senal !== 'mirar';
         case 'mirar': return f.senal === 'mirar';
         case 'reconocer': return f.senal === 'reconocer';
         default: return true;
@@ -248,7 +253,7 @@ export function RegistrosVivo({
       const x = clave(a);
       const y = clave(b);
       const c = typeof x === 'string' ? x.localeCompare(String(y), 'es') : x - (y as number);
-      return (orden.asc ? 1 : -1) * c || b.atendidos - a.atendidos;
+      return (orden.asc ? 1 : -1) * c || b.registros - a.registros;
     });
   }, [enPais, busca, filtro, orden]);
 
@@ -299,16 +304,17 @@ export function RegistrosVivo({
 
       <div className="ks" style={{ marginTop: 8 }}>
         {tarjeta('todos', cuenta.todos, 'Psicólogos/as')}
-        {tarjeta('100', cuenta['100'], '100+ atendidos', undefined, 'Pacientes con la 1ra sesión realizada con este psicólogo/a')}
-        {tarjeta('50', cuenta['50'], '50 a 99 atendidos', undefined, 'Pacientes con la 1ra sesión realizada con este psicólogo/a')}
-        {tarjeta('reciente', cuenta.reciente, `Llegaron a 50 o 100 atendidos (últ. ${DIAS_RECIENTE} días)`, 'var(--ac)')}
-        {tarjeta('mirar', cuenta.mirar, 'Para mirar', 'var(--r)', `50+ registros y ${PUNTOS} puntos o más por debajo del promedio en llegada a la 1ra o en continuidad a la 2da`)}
-        {tarjeta('reconocer', cuenta.reconocer, 'Para reconocer', 'var(--v)', `50+ registros y ${PUNTOS} puntos o más por encima del promedio en continuidad a la 2da`)}
+        {tarjeta('100', cuenta['100'], '100+ registros')}
+        {tarjeta('50', cuenta['50'], '50 a 99 registros')}
+        {tarjeta('reciente', cuenta.reciente, `Llegaron a 50 o 100 registros (últ. ${DIAS_RECIENTE} días)`, 'var(--ac)')}
+        {tarjeta('ok', cuenta.ok, '🏆 Hito con conversión esperada', 'var(--v)', `50+ registros y llegada a la 1ra y vuelta a la 2da sin estar ${PUNTOS} puntos o más por debajo del promedio`)}
+        {tarjeta('mirar', cuenta.mirar, '🚩 Hito con conversión baja', 'var(--r)', `50+ registros y ${PUNTOS} puntos o más por debajo del promedio en llegada a la 1ra o en continuidad a la 2da`)}
+        {tarjeta('reconocer', cuenta.reconocer, '⭐ Destacados', 'var(--ac)', `50+ registros y ${PUNTOS} puntos o más por encima del promedio en continuidad a la 2da`)}
       </div>
       <div className="rg-sub">
         Promedio Tu Terapia: <b>{fmtPct(prom.llegada)}</b> de los registros llega a la 1ra sesión y <b>{fmtPct(prom.continuidad)}</b> de los
-        que tienen la 1ra vuelve a una 2da. Registros = todos los pacientes históricos asignados o atendidos por cada psicólogo/a. Atendidos =
-        los que hicieron la 1ra sesión; los hitos de 50 y 100 se cuentan sobre atendidos.
+        que tienen la 1ra vuelve a una 2da. Registros = todos los pacientes históricos asignados o atendidos por cada psicólogo/a; los hitos
+        de 50 y 100 se cuentan sobre registros. Atendidos = los que hicieron la 1ra sesión.
       </div>
 
       <div className="rg-tabs">
@@ -322,8 +328,8 @@ export function RegistrosVivo({
             <tr>
               {th('nombre', 'Psicólogo/a')}
               <th className="c-p">País</th>
-              {th('registros', 'Registros', 'Total histórico de pacientes asignados o atendidos')}
-              {th('atendidos', 'Atendidos', 'Pacientes con la 1ra sesión realizada. La medalla marca los hitos de 50 y 100; en azul, si llegó en los últimos 30 días')}
+              {th('registros', 'Registros', 'Total histórico. Hito de 50 y 100 registros: 🏅/🏆 con la conversión esperada, 🚩 con conversión baja; en azul, si llegó en los últimos 30 días')}
+              {th('atendidos', 'Atendidos', 'Registros que hicieron la 1ra sesión con este psicólogo/a')}
               <th title="Cómo se reparten los registros">Reparto</th>
               {th('sin_1ra', 'Sin 1ra', DIVISIONES[0].ayuda)}
               {th('solo_1ra', '1ra sin 2da', DIVISIONES[1].ayuda)}
@@ -337,7 +343,7 @@ export function RegistrosVivo({
           <tbody>
             {visibles.map((f) => {
               const on = abierto === f.therapist_id;
-              const hito = f.atendidos >= 100 ? 100 : f.atendidos >= 50 ? 50 : null;
+              const hito = f.registros >= 100 ? 100 : f.registros >= 50 ? 50 : null;
               const fechaHito = hito === 100 ? f.hito_100 : hito === 50 ? f.hito_50 : null;
               const det = pacientes[f.therapist_id];
               return (
@@ -348,17 +354,17 @@ export function RegistrosVivo({
                       <Ojito t={f.mx} />
                     </td>
                     <td className="c-p"><span className={`b ${f.pais === 'AR' ? 'bar' : 'buy'}`}>{f.pais}</span></td>
-                    <td className="rg-n">{f.registros}</td>
                     <td className="rg-n rg-reg">
-                      {f.atendidos}
+                      {f.registros}
                       {hito ? (
-                        <span className={`rg-hito ${f.hitoReciente ? 'nuevo' : ''}`} title={`Llegó a ${hito} atendidos el ${ddmmaa(fechaHito)}`}>
-                          {hito === 100 ? '🏆' : '🏅'} {hito} · {ddmmaa(fechaHito)}
+                        <span className={`rg-hito ${f.hitoReciente ? 'nuevo' : ''} ${f.senal === 'mirar' ? 'baja' : ''}`} title={`Llegó a ${hito} registros el ${ddmmaa(fechaHito)}${f.senal === 'mirar' ? ', con conversión por debajo del promedio' : ''}`}>
+                          {f.senal === 'mirar' ? '🚩' : hito === 100 ? '🏆' : '🏅'} {hito} · {ddmmaa(fechaHito)}
                         </span>
-                      ) : f.atendidos >= 40 ? (
-                        <small>faltan {50 - f.atendidos} para 50</small>
+                      ) : f.registros >= 40 ? (
+                        <small>faltan {50 - f.registros} para 50</small>
                       ) : null}
                     </td>
+                    <td className="rg-n">{f.atendidos}</td>
                     <td>
                       <div className="rg-bar">
                         {DIVISIONES.map((d) => (
@@ -377,8 +383,8 @@ export function RegistrosVivo({
                     <td className="rg-n" style={{ color: vsProm(f.llegada, prom.llegada) }}>{fmtPct(f.llegada)}</td>
                     <td className="rg-n" style={{ color: vsProm(f.continuidad, prom.continuidad) }}>{fmtPct(f.continuidad)}</td>
                     <td>
-                      {f.senal === 'mirar' && <span className="rg-sn mirar">Para mirar</span>}
-                      {f.senal === 'reconocer' && <span className="rg-sn reconocer">Para reconocer</span>}
+                      {f.senal === 'mirar' && <span className="rg-sn mirar">🚩 Conversión baja</span>}
+                      {f.senal === 'reconocer' && <span className="rg-sn reconocer">⭐ Destacado</span>}
                     </td>
                   </tr>
                   {on && (
@@ -415,9 +421,9 @@ export function RegistrosVivo({
       <div className="rg-sub" style={{ marginTop: 6 }}>
         Tocá un psicólogo/a para ver sus pacientes en cada división. Llegada y continuidad se calculan solo con registros que ya tuvieron
         tiempo (30 y 35 días, como las alertas A y B) y desde 10 casos; en rojo o verde si están {PUNTOS} puntos por debajo o por encima del
-        promedio. El hito toma la fecha de la 1ra sesión del paciente número 50 o 100. Los pacientes reasignados sin ninguna sesión no quedan
-        en el histórico de su psicólogo/a anterior: la plataforma no guarda esa asignación. El nombre del paciente se lee en el momento y no
-        se guarda en el dashboard.
+        promedio. La fecha del hito es la del registro número 50 o 100 (su primer turno con el psicólogo/a o, si no tuvo, el día que se
+        registró). Los pacientes reasignados sin ninguna sesión no quedan en el histórico de su psicólogo/a anterior: la plataforma no
+        guarda esa asignación. El nombre del paciente se lee en el momento y no se guarda en el dashboard.
       </div>
     </>
   );
