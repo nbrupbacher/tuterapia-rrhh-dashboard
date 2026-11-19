@@ -16,6 +16,8 @@ import { Ojito } from '@/components/Ojito';
  * - "Para mirar": 50+ registros y 10 puntos o más por debajo en alguna.
  * - "Para reconocer": 50+ registros, 10 puntos o más arriba en continuidad y
  *   no por debajo en llegada.
+ * El símbolo del hito sigue la misma regla: 🚩 si es "Para mirar" (conversión
+ * baja), si no 🏅 50 / 🏆 100.
  * No va a CX: es para Talent.
  */
 
@@ -57,7 +59,7 @@ type Fila = Psico & {
   hitoReciente: 50 | 100 | null;
 };
 type Col = 'nombre' | 'registros' | 'atendidos' | 'sin_1ra' | 'solo_1ra' | 'activo' | 'dejo' | 'llegada' | 'continuidad';
-type Filtro = 'todos' | '100' | '50' | 'reciente' | 'mirar' | 'reconocer';
+type Filtro = 'todos' | '100' | '50' | 'reciente' | 'ok' | 'mirar' | 'reconocer';
 
 const PUNTOS = 10;
 const MIN_REGISTROS = 50;
@@ -87,6 +89,7 @@ const ESTILOS = `
 .rg-reg small { display:block; margin:2px 0 0; }
 .rg-hito { display:inline-block; font-size:10px; padding:1px 6px; border-radius:10px; margin-left:6px; border:1px solid var(--bd2); color:var(--t2); white-space:nowrap; }
 .rg-hito.nuevo { color:var(--ac); border-color:rgba(79,142,247,.5); background:rgba(79,142,247,.12); }
+.rg-hito.baja { color:var(--r); border-color:rgba(240,82,82,.5); background:rgba(240,82,82,.1); }
 .rg-sn { display:inline-block; font-size:10.5px; padding:2px 7px; border-radius:10px; white-space:nowrap; }
 .rg-sn.mirar { color:var(--r); border:1px solid rgba(240,82,82,.4); background:rgba(240,82,82,.1); }
 .rg-sn.reconocer { color:var(--v); border:1px solid rgba(52,211,153,.35); background:rgba(52,211,153,.1); }
@@ -217,6 +220,7 @@ export function RegistrosVivo({
       '100': enPais.filter((f) => f.registros >= 100).length,
       '50': enPais.filter((f) => f.registros >= 50 && f.registros < 100).length,
       reciente: enPais.filter((f) => f.hitoReciente).length,
+      ok: enPais.filter((f) => f.registros >= MIN_REGISTROS && f.senal !== 'mirar').length,
       mirar: enPais.filter((f) => f.senal === 'mirar').length,
       reconocer: enPais.filter((f) => f.senal === 'reconocer').length,
     }),
@@ -231,6 +235,7 @@ export function RegistrosVivo({
         case '100': return f.registros >= 100;
         case '50': return f.registros >= 50 && f.registros < 100;
         case 'reciente': return Boolean(f.hitoReciente);
+        case 'ok': return f.registros >= MIN_REGISTROS && f.senal !== 'mirar';
         case 'mirar': return f.senal === 'mirar';
         case 'reconocer': return f.senal === 'reconocer';
         default: return true;
@@ -302,8 +307,9 @@ export function RegistrosVivo({
         {tarjeta('100', cuenta['100'], '100+ registros')}
         {tarjeta('50', cuenta['50'], '50 a 99 registros')}
         {tarjeta('reciente', cuenta.reciente, `Llegaron a 50 o 100 registros (últ. ${DIAS_RECIENTE} días)`, 'var(--ac)')}
-        {tarjeta('mirar', cuenta.mirar, 'Para mirar', 'var(--r)', `50+ registros y ${PUNTOS} puntos o más por debajo del promedio en llegada a la 1ra o en continuidad a la 2da`)}
-        {tarjeta('reconocer', cuenta.reconocer, 'Para reconocer', 'var(--v)', `50+ registros y ${PUNTOS} puntos o más por encima del promedio en continuidad a la 2da`)}
+        {tarjeta('ok', cuenta.ok, '🏆 Hito con conversión esperada', 'var(--v)', `50+ registros y llegada a la 1ra y vuelta a la 2da sin estar ${PUNTOS} puntos o más por debajo del promedio`)}
+        {tarjeta('mirar', cuenta.mirar, '🚩 Hito con conversión baja', 'var(--r)', `50+ registros y ${PUNTOS} puntos o más por debajo del promedio en llegada a la 1ra o en continuidad a la 2da`)}
+        {tarjeta('reconocer', cuenta.reconocer, '⭐ Destacados', 'var(--ac)', `50+ registros y ${PUNTOS} puntos o más por encima del promedio en continuidad a la 2da`)}
       </div>
       <div className="rg-sub">
         Promedio Tu Terapia: <b>{fmtPct(prom.llegada)}</b> de los registros llega a la 1ra sesión y <b>{fmtPct(prom.continuidad)}</b> de los
@@ -322,7 +328,7 @@ export function RegistrosVivo({
             <tr>
               {th('nombre', 'Psicólogo/a')}
               <th className="c-p">País</th>
-              {th('registros', 'Registros', 'Total histórico. La medalla marca los hitos de 50 y 100 registros; en azul, si llegó en los últimos 30 días')}
+              {th('registros', 'Registros', 'Total histórico. Hito de 50 y 100 registros: 🏅/🏆 con la conversión esperada, 🚩 con conversión baja; en azul, si llegó en los últimos 30 días')}
               {th('atendidos', 'Atendidos', 'Registros que hicieron la 1ra sesión con este psicólogo/a')}
               <th title="Cómo se reparten los registros">Reparto</th>
               {th('sin_1ra', 'Sin 1ra', DIVISIONES[0].ayuda)}
@@ -351,8 +357,8 @@ export function RegistrosVivo({
                     <td className="rg-n rg-reg">
                       {f.registros}
                       {hito ? (
-                        <span className={`rg-hito ${f.hitoReciente ? 'nuevo' : ''}`} title={`Llegó a ${hito} registros el ${ddmmaa(fechaHito)}`}>
-                          {hito === 100 ? '🏆' : '🏅'} {hito} · {ddmmaa(fechaHito)}
+                        <span className={`rg-hito ${f.hitoReciente ? 'nuevo' : ''} ${f.senal === 'mirar' ? 'baja' : ''}`} title={`Llegó a ${hito} registros el ${ddmmaa(fechaHito)}${f.senal === 'mirar' ? ', con conversión por debajo del promedio' : ''}`}>
+                          {f.senal === 'mirar' ? '🚩' : hito === 100 ? '🏆' : '🏅'} {hito} · {ddmmaa(fechaHito)}
                         </span>
                       ) : f.registros >= 40 ? (
                         <small>faltan {50 - f.registros} para 50</small>
@@ -377,8 +383,8 @@ export function RegistrosVivo({
                     <td className="rg-n" style={{ color: vsProm(f.llegada, prom.llegada) }}>{fmtPct(f.llegada)}</td>
                     <td className="rg-n" style={{ color: vsProm(f.continuidad, prom.continuidad) }}>{fmtPct(f.continuidad)}</td>
                     <td>
-                      {f.senal === 'mirar' && <span className="rg-sn mirar">Para mirar</span>}
-                      {f.senal === 'reconocer' && <span className="rg-sn reconocer">Para reconocer</span>}
+                      {f.senal === 'mirar' && <span className="rg-sn mirar">🚩 Conversión baja</span>}
+                      {f.senal === 'reconocer' && <span className="rg-sn reconocer">⭐ Destacado</span>}
                     </td>
                   </tr>
                   {on && (
