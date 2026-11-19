@@ -26,9 +26,10 @@ export const maxDuration = 60;
  * - llegada: de los registros de hace más de 30 días, % con 1ra sesión.
  * - continuidad: de los que tuvieron la 1ra hace más de 35 días, % con 2da
  *   (las mismas ventanas que las reglas A y B de Alertas).
- * Las tasas vienen también por período (`tasas`/`promedios`: últimos 365, 180
- * y 90 días según la fecha del registro o de la 1ra; 0 = histórico), para ver
- * quién está flojo ahora (Talent, 2026-11-19).
+ * Las tasas vienen también por período (`tasas`/`promedios`: 90, 60 y 30 días;
+ * 0 = histórico), para ver quién está flojo ahora (Talent, 2026-11-19). Cada
+ * período son los días anteriores al margen de maduración: "30 días" son los
+ * registros de hace 60 a 30 días y las 1ras sesiones de hace 65 a 35 días.
  *
  * Hitos: fecha en que llegó a 50 y a 100 REGISTROS (Talent, 2026-11-19: el
  * hito es de registros, no de pacientes atendidos). La fecha de cada registro
@@ -43,7 +44,7 @@ const DIAS_ACTIVO = 30;
 const DIAS_MADURO_REGISTRO = 30;
 const DIAS_MADURO_PRIMERA = 35;
 const HITOS = [50, 100] as const;
-const PERIODOS = [0, 365, 180, 90] as const;
+const PERIODOS = [0, 90, 60, 30] as const;
 
 type Tasa = { registros_maduros: number; llegaron: number; primeras_maduras: number; con_2da: number };
 const tasaVacia = (): Tasa => ({ registros_maduros: 0, llegaron: 0, primeras_maduras: 0, con_2da: 0 });
@@ -169,13 +170,14 @@ export async function GET(request: Request) {
           const vin = vinculo(p, ahora);
           const pri = ms(p.primera);
           for (const dias of PERIODOS) {
-            const desde = dias ? ahora - dias * 86_400_000 : -Infinity;
+            const desdeReg = dias ? corteReg - dias * 86_400_000 : -Infinity;
+            const desdePrim = dias ? cortePrim - dias * 86_400_000 : -Infinity;
             const t = tasas[dias];
-            if (vin < corteReg && vin >= desde) {
+            if (vin < corteReg && vin >= desdeReg) {
               t.registros_maduros += 1;
               if (p.realizadas >= 1) t.llegaron += 1;
             }
-            if (pri < cortePrim && pri >= desde) {
+            if (pri < cortePrim && pri >= desdePrim) {
               t.primeras_maduras += 1;
               if (p.realizadas >= 2) t.con_2da += 1;
             }
@@ -243,6 +245,7 @@ export async function GET(request: Request) {
       return {
         promedio: tasaProm(prom[0]),
         promedios: Object.fromEntries(PERIODOS.map((d) => [d, tasaProm(prom[d])])),
+        maduracion: { registro: DIAS_MADURO_REGISTRO, primera: DIAS_MADURO_PRIMERA },
         psicologos: tidDetalle ? undefined : psicologos,
         psicologo: tidDetalle ? psicologos[0] ?? null : undefined,
         pacientes,
