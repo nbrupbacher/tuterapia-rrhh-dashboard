@@ -69,7 +69,7 @@ const MIN_REGISTROS = 50;
 const MIN_MUESTRA = 10;
 const DIAS_RECIENTE = 30;
 /** Período de las tasas y señales; la clave son días hacia atrás ('0' = histórico). */
-const PERIODOS: [string, string][] = [['0', 'Histórico'], ['365', 'Últ. 12 meses'], ['180', 'Últ. 6 meses'], ['90', 'Últ. 3 meses']];
+const PERIODOS: [string, string][] = [['0', 'Histórico'], ['90', '90 días'], ['60', '60 días'], ['30', '30 días']];
 
 /** Conversión baja: 🚩 desde PUNTOS por debajo del promedio, 🚨 desde PUNTOS_ALERTA. */
 const esBaja = (s: Senal) => s === 'mirar' || s === 'alerta';
@@ -101,6 +101,7 @@ const ESTILOS = `
 .rg-hito.baja { color:var(--r); border-color:rgba(240,82,82,.5); background:rgba(240,82,82,.1); }
 .rg-sn { display:inline-block; font-size:10.5px; padding:2px 7px; border-radius:10px; white-space:nowrap; }
 .rg-sn.mirar { color:var(--r); border:1px solid rgba(240,82,82,.4); background:rgba(240,82,82,.1); }
+.rg-reglas { font-size:11px; color:var(--t2); border:1px solid var(--bd2); border-radius:6px; padding:8px 10px; margin:0 0 8px; line-height:1.6; }
 .rg-sn.estandar { color:var(--t2); border:1px solid var(--bd2); }
 .rg-sn.alerta { color:#fff; border:1px solid var(--r); background:var(--r); font-weight:600; }
 .rg-sn.reconocer { color:var(--v); border:1px solid rgba(52,211,153,.35); background:rgba(52,211,153,.1); }
@@ -148,6 +149,7 @@ export function RegistrosVivo({
   const [promTotal, setProm] = useState<{ llegada: number | null; continuidad: number | null }>({ llegada: null, continuidad: null });
   const [proms, setProms] = useState<Record<string, { llegada: number | null; continuidad: number | null }>>({});
   const [periodo, setPeriodo] = useState('0');
+  const [mad, setMad] = useState({ registro: 30, primera: 35 });
   const prom = proms[periodo] ?? promTotal;
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -171,6 +173,7 @@ export function RegistrosVivo({
         setPsicos(ps);
         setProm(json.promedio ?? { llegada: null, continuidad: null });
         setProms(json.promedios ?? {});
+        if (json.maduracion) setMad(json.maduracion);
         // Psicólogos/as que no están en la Matrix del mes: nombre desde `therapists`.
         const faltan = ps.map((p) => p.therapist_id).filter((id) => !matrixPor.has(id));
         const m = new Map<string, string>();
@@ -343,11 +346,23 @@ export function RegistrosVivo({
         que tienen la 1ra vuelve a una 2da. Registros = todos los pacientes históricos asignados o atendidos por cada psicólogo/a; los hitos
         de 50 y 100 se cuentan sobre registros. Atendidos = los que hicieron la 1ra sesión.
       </div>
+      <div className="rg-reglas">
+        <b>Cómo se lee.</b> <b>Llegada 1ra</b>: % de los registros que hizo la 1ra sesión. <b>Vuelven a 2da</b>: de los que hicieron la 1ra,
+        % que hizo también una 2da con el mismo psicólogo/a. Entre paréntesis, puntos por encima (+) o por debajo (−) del promedio de Tu
+        Terapia.
+        <br />
+        <b>Señal</b> (desde {MIN_REGISTROS} registros y {MIN_MUESTRA} casos): ⭐ Destacado = {PUNTOS}+ puntos arriba en vuelta a 2da · ✅
+        Estándar · 🚩 = {PUNTOS} a {PUNTOS_ALERTA - 1} puntos abajo en alguna de las dos · 🚨 = {PUNTOS_ALERTA}+ puntos abajo. La medalla del
+        hito (🏅 50 · 🏆 100 registros) cambia a 🚩 o 🚨 si la conversión está baja.
+        <br />
+        <b>Períodos</b>: cuentan solo lo que ya tuvo tiempo de dar resultado. "30 días" son los registros de hace {mad.registro + 30} a{' '}
+        {mad.registro} días y las 1ras sesiones de hace {mad.primera + 30} a {mad.primera} días. Los hitos son siempre históricos.
+      </div>
 
       <div className="rg-tabs">
         <input className="rg-busca" type="search" placeholder="Buscar psicólogo/a" value={busca} onChange={(e) => setBusca(e.target.value)} />
         {PERIODOS.map(([k, label]) => (
-          <button key={k} className={`btn ${periodo === k ? 'on' : ''}`} onClick={() => setPeriodo(k)} title="Período para llegada, vuelta a 2da y señales. Los hitos son siempre históricos">
+          <button key={k} className={`btn ${periodo === k ? 'on' : ''}`} onClick={() => setPeriodo(k)} title="Período para llegada, vuelta a 2da y señales (solo registros que ya tuvieron tiempo). Los hitos son siempre históricos">
             {label}
           </button>
         ))}
