@@ -39,6 +39,7 @@ type Psico = {
   con_2da: number;
   hito_50: string | null;
   hito_100: string | null;
+  tasas?: Record<string, { registros_maduros: number; llegaron: number; primeras_maduras: number; con_2da: number }>;
 };
 type Paciente = {
   paciente_id: number;
@@ -50,7 +51,7 @@ type Paciente = {
   primera: string | null;
   ultima: string | null;
 };
-type Senal = 'alerta' | 'mirar' | 'reconocer' | null;
+type Senal = 'alerta' | 'mirar' | 'estandar' | 'reconocer' | null;
 type Fila = Psico & {
   nombre: string;
   mx: TherapistView | undefined;
@@ -67,6 +68,8 @@ const PUNTOS_ALERTA = 15;
 const MIN_REGISTROS = 50;
 const MIN_MUESTRA = 10;
 const DIAS_RECIENTE = 30;
+/** Período de las tasas y señales; la clave son días hacia atrás ('0' = histórico). */
+const PERIODOS: [string, string][] = [['0', 'Histórico'], ['365', 'Últ. 12 meses'], ['180', 'Últ. 6 meses'], ['90', 'Últ. 3 meses']];
 
 /** Conversión baja: 🚩 desde PUNTOS por debajo del promedio, 🚨 desde PUNTOS_ALERTA. */
 const esBaja = (s: Senal) => s === 'mirar' || s === 'alerta';
@@ -98,6 +101,7 @@ const ESTILOS = `
 .rg-hito.baja { color:var(--r); border-color:rgba(240,82,82,.5); background:rgba(240,82,82,.1); }
 .rg-sn { display:inline-block; font-size:10.5px; padding:2px 7px; border-radius:10px; white-space:nowrap; }
 .rg-sn.mirar { color:var(--r); border:1px solid rgba(240,82,82,.4); background:rgba(240,82,82,.1); }
+.rg-sn.estandar { color:var(--t2); border:1px solid var(--bd2); }
 .rg-sn.alerta { color:#fff; border:1px solid var(--r); background:var(--r); font-weight:600; }
 .rg-sn.reconocer { color:var(--v); border:1px solid rgba(52,211,153,.35); background:rgba(52,211,153,.1); }
 .rg-bar { display:flex; height:8px; width:120px; border-radius:3px; overflow:hidden; background:var(--bg4); }
@@ -141,7 +145,10 @@ export function RegistrosVivo({
   onRowClick: (t: TherapistView) => void;
 }) {
   const [psicos, setPsicos] = useState<Psico[]>([]);
-  const [prom, setProm] = useState<{ llegada: number | null; continuidad: number | null }>({ llegada: null, continuidad: null });
+  const [promTotal, setProm] = useState<{ llegada: number | null; continuidad: number | null }>({ llegada: null, continuidad: null });
+  const [proms, setProms] = useState<Record<string, { llegada: number | null; continuidad: number | null }>>({});
+  const [periodo, setPeriodo] = useState('0');
+  const prom = proms[periodo] ?? promTotal;
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nombres, setNombres] = useState<Map<string, string>>(new Map());
@@ -163,6 +170,7 @@ export function RegistrosVivo({
         const ps = ((json.psicologos ?? []) as Psico[]).map((p) => ({ ...p, atendidos: p.atendidos ?? p.registros - p.sin_1ra }));
         setPsicos(ps);
         setProm(json.promedio ?? { llegada: null, continuidad: null });
+        setProms(json.promedios ?? {});
         // Psicólogos/as que no están en la Matrix del mes: nombre desde `therapists`.
         const faltan = ps.map((p) => p.therapist_id).filter((id) => !matrixPor.has(id));
         const m = new Map<string, string>();
@@ -203,15 +211,17 @@ export function RegistrosVivo({
     const reciente = (iso: string | null) => Boolean(iso && ahora - new Date(iso).getTime() <= DIAS_RECIENTE * 86_400_000);
     return psicos.map((p) => {
       const mx = matrixPor.get(p.therapist_id);
-      const llegada = pct(p.llegaron, p.registros_maduros);
-      const continuidad = pct(p.con_2da, p.primeras_maduras);
+      const t = p.tasas?.[periodo] ?? p;
+      const llegada = pct(t.llegaron, t.registros_maduros);
+      const continuidad = pct(t.con_2da, t.primeras_maduras);
       let senal: Senal = null;
-      if (p.registros >= MIN_REGISTROS && prom.llegada != null && prom.continuidad != null) {
+      if (p.registros >= MIN_REGISTROS && (llegada != null || continuidad != null) && prom.llegada != null && prom.continuidad != null) {
         const dL = llegada == null ? 0 : (llegada - prom.llegada) * 100;
         const dC = continuidad == null ? 0 : (continuidad - prom.continuidad) * 100;
         if (dL <= -PUNTOS_ALERTA || dC <= -PUNTOS_ALERTA) senal = 'alerta';
         else if (dL <= -PUNTOS || dC <= -PUNTOS) senal = 'mirar';
         else if (dC >= PUNTOS && dL > -PUNTOS / 2) senal = 'reconocer';
+        else senal = 'estandar';
       }
       const hitoReciente: 50 | 100 | null = reciente(p.hito_100) ? 100 : reciente(p.hito_50) ? 50 : null;
       return {
@@ -224,7 +234,7 @@ export function RegistrosVivo({
         hitoReciente,
       };
     });
-  }, [psicos, matrixPor, nombres, prom]);
+  }, [psicos, matrixPor, nombres, prom, periodo]);
 
   const enPais = useMemo(() => filas.filter((f) => pais === 'T' || f.pais === pais), [filas, pais]);
 
@@ -234,7 +244,7 @@ export function RegistrosVivo({
       '100': enPais.filter((f) => f.registros >= 100).length,
       '50': enPais.filter((f) => f.registros >= 50 && f.registros < 100).length,
       reciente: enPais.filter((f) => f.hitoReciente).length,
-      ok: enPais.filter((f) => f.registros >= MIN_REGISTROS && !esBaja(f.senal)).length,
+      ok: enPais.filter((f) => (f.senal === 'estandar' || f.senal === 'reconocer')).length,
       alerta: enPais.filter((f) => f.senal === 'alerta').length,
       mirar: enPais.filter((f) => f.senal === 'mirar').length,
       reconocer: enPais.filter((f) => f.senal === 'reconocer').length,
@@ -250,7 +260,7 @@ export function RegistrosVivo({
         case '100': return f.registros >= 100;
         case '50': return f.registros >= 50 && f.registros < 100;
         case 'reciente': return Boolean(f.hitoReciente);
-        case 'ok': return f.registros >= MIN_REGISTROS && !esBaja(f.senal);
+        case 'ok': return (f.senal === 'estandar' || f.senal === 'reconocer');
         case 'alerta': return f.senal === 'alerta';
         case 'mirar': return f.senal === 'mirar';
         case 'reconocer': return f.senal === 'reconocer';
@@ -336,6 +346,11 @@ export function RegistrosVivo({
 
       <div className="rg-tabs">
         <input className="rg-busca" type="search" placeholder="Buscar psicólogo/a" value={busca} onChange={(e) => setBusca(e.target.value)} />
+        {PERIODOS.map(([k, label]) => (
+          <button key={k} className={`btn ${periodo === k ? 'on' : ''}`} onClick={() => setPeriodo(k)} title="Período para llegada, vuelta a 2da y señales. Los hitos son siempre históricos">
+            {label}
+          </button>
+        ))}
         <span className="cnt">{visibles.length} psicólogos/as</span>
       </div>
 
@@ -402,6 +417,7 @@ export function RegistrosVivo({
                     <td>
                       {f.senal === 'alerta' && <span className="rg-sn alerta">🚨 Super alerta</span>}
                       {f.senal === 'mirar' && <span className="rg-sn mirar">🚩 Conversión baja</span>}
+                      {f.senal === 'estandar' && <span className="rg-sn estandar">✅ Estándar</span>}
                       {f.senal === 'reconocer' && <span className="rg-sn reconocer">⭐ Destacado</span>}
                     </td>
                   </tr>
