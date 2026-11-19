@@ -26,6 +26,9 @@ export const maxDuration = 60;
  * - llegada: de los registros de hace más de 30 días, % con 1ra sesión.
  * - continuidad: de los que tuvieron la 1ra hace más de 35 días, % con 2da
  *   (las mismas ventanas que las reglas A y B de Alertas).
+ * Las tasas vienen también por período (`tasas`/`promedios`: últimos 365, 180
+ * y 90 días según la fecha del registro o de la 1ra; 0 = histórico), para ver
+ * quién está flojo ahora (Talent, 2026-11-19).
  *
  * Hitos: fecha en que llegó a 50 y a 100 REGISTROS (Talent, 2026-11-19: el
  * hito es de registros, no de pacientes atendidos). La fecha de cada registro
@@ -40,6 +43,15 @@ const DIAS_ACTIVO = 30;
 const DIAS_MADURO_REGISTRO = 30;
 const DIAS_MADURO_PRIMERA = 35;
 const HITOS = [50, 100] as const;
+const PERIODOS = [0, 365, 180, 90] as const;
+
+type Tasa = { registros_maduros: number; llegaron: number; primeras_maduras: number; con_2da: number };
+const tasaVacia = (): Tasa => ({ registros_maduros: 0, llegaron: 0, primeras_maduras: 0, con_2da: 0 });
+const tasaProm = (t: Tasa) => ({
+  llegada: t.registros_maduros ? t.llegaron / t.registros_maduros : null,
+  continuidad: t.primeras_maduras ? t.con_2da / t.primeras_maduras : null,
+});
+const porPeriodo = (): Record<number, Tasa> => Object.fromEntries(PERIODOS.map((d) => [d, tasaVacia()]));
 
 const CANCELADAS = `
   SELECT idSesion FROM terapeutas_log
@@ -142,30 +154,36 @@ export async function GET(request: Request) {
       }
 
       // Promedio de la plataforma: todos los registros juntos.
-      const prom = { reg_maduros: 0, llegaron: 0, primeras_maduras: 0, con_2da: 0 };
+      const prom = porPeriodo();
       const corteReg = ahora - DIAS_MADURO_REGISTRO * 86_400_000;
       const cortePrim = ahora - DIAS_MADURO_PRIMERA * 86_400_000;
 
       const psicologos = [...porTid.entries()].map(([tid, ps]) => {
         const div: Record<Division, number> = { sin_1ra: 0, solo_1ra: 0, activo: 0, dejo: 0 };
-        let regMad = 0, lleg = 0, primMad = 0, con2 = 0, agendadosSin1ra = 0;
+        let agendadosSin1ra = 0;
+        const tasas = porPeriodo();
         for (const p of ps) {
           const d = division(p, ahora);
           div[d] += 1;
           if (d === 'sin_1ra' && p.futuras > 0) agendadosSin1ra += 1;
-          if (vinculo(p, ahora) < corteReg) {
-            regMad += 1;
-            if (p.realizadas >= 1) lleg += 1;
-          }
-          if (p.primera && ms(p.primera) < cortePrim) {
-            primMad += 1;
-            if (p.realizadas >= 2) con2 += 1;
+          const vin = vinculo(p, ahora);
+          const pri = ms(p.primera);
+          for (const dias of PERIODOS) {
+            const desde = dias ? ahora - dias * 86_400_000 : -Infinity;
+            const t = tasas[dias];
+            if (vin < corteReg && vin >= desde) {
+              t.registros_maduros += 1;
+              if (p.realizadas >= 1) t.llegaron += 1;
+            }
+            if (pri < cortePrim && pri >= desde) {
+              t.primeras_maduras += 1;
+              if (p.realizadas >= 2) t.con_2da += 1;
+            }
           }
         }
-        prom.reg_maduros += regMad;
-        prom.llegaron += lleg;
-        prom.primeras_maduras += primMad;
-        prom.con_2da += con2;
+        for (const dias of PERIODOS) {
+          for (const k of Object.keys(tasaVacia()) as (keyof Tasa)[]) prom[dias][k] += tasas[dias][k];
+        }
 
         // Hitos sobre registros: fecha del registro número 50 y 100.
         const fechas = ps.map((p) => vinculo(p, ahora)).sort((a, b) => a - b);
@@ -179,10 +197,8 @@ export async function GET(request: Request) {
           atendidos: ps.length - div.sin_1ra,
           ...div,
           agendados_sin_1ra: agendadosSin1ra,
-          registros_maduros: regMad,
-          llegaron: lleg,
-          primeras_maduras: primMad,
-          con_2da: con2,
+          ...tasas[0],
+          tasas,
           hito_50: hitos[50],
           hito_100: hitos[100],
         };
@@ -225,10 +241,8 @@ export async function GET(request: Request) {
       }
 
       return {
-        promedio: {
-          llegada: prom.reg_maduros ? prom.llegaron / prom.reg_maduros : null,
-          continuidad: prom.primeras_maduras ? prom.con_2da / prom.primeras_maduras : null,
-        },
+        promedio: tasaProm(prom[0]),
+        promedios: Object.fromEntries(PERIODOS.map((d) => [d, tasaProm(prom[d])])),
         psicologos: tidDetalle ? undefined : psicologos,
         psicologo: tidDetalle ? psicologos[0] ?? null : undefined,
         pacientes,
