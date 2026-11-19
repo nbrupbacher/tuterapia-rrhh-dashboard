@@ -26,9 +26,11 @@ export const maxDuration = 60;
  * - continuidad: de los que tuvieron la 1ra hace más de 35 días, % con 2da
  *   (las mismas ventanas que las reglas A y B de Alertas).
  *
- * Hitos: fecha en que llegó a 50 y a 100 registros. La fecha de cada registro
- * es su primer turno con él/ella (realizado o no) o, si no tuvo ninguno, la
- * fecha en que se registró el paciente.
+ * Hitos (Talent, 2026-11-19): fecha en que llegó a 50 y a 100 pacientes
+ * atendidos, es decir con la 1ra sesión realizada con él/ella. Cuenta por la
+ * fecha de esa 1ra sesión. Los registros que nunca llegaron no suman al hito.
+ * La fecha "vínculo" de cada registro (primer turno o, si no tuvo, registro
+ * del paciente) se sigue usando para la tasa de llegada.
  *
  * Con ?tid=ID devuelve además los pacientes de ese psicólogo/a con su nombre,
  * leído en el momento y no guardado en ningún lado (igual que Reseñas).
@@ -165,7 +167,12 @@ export async function GET(request: Request) {
         prom.primeras_maduras += primMad;
         prom.con_2da += con2;
 
-        const fechas = ps.map((p) => vinculo(p, ahora)).sort((a, b) => a - b);
+        // Hitos sobre pacientes atendidos (con 1ra sesión realizada), por fecha de esa 1ra.
+        const fechas = ps
+          .filter((p) => p.realizadas >= 1 && p.primera)
+          .map((p) => ms(p.primera))
+          .filter((t) => !Number.isNaN(t))
+          .sort((a, b) => a - b);
         const hitos: Record<string, string | null> = {};
         for (const h of HITOS) hitos[h] = fechas.length >= h ? new Date(fechas[h - 1]).toISOString() : null;
 
@@ -173,6 +180,7 @@ export async function GET(request: Request) {
           therapist_id: tid,
           pais: ps[0].pais,
           registros: ps.length,
+          atendidos: ps.length - div.sin_1ra,
           ...div,
           agendados_sin_1ra: agendadosSin1ra,
           registros_maduros: regMad,
