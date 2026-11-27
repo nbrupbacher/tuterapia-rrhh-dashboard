@@ -12,6 +12,12 @@
  * El CUIT/RUT del form todavía no se puede cruzar con `therapists` (no lo
  * tiene); sí sirve para reconocer a quien se postuló antes con otro mail.
  * Etapa 2: traer el documento de la plataforma y cruzar también por ahí.
+ *
+ * `therapists` arranca en abril 2026 (CSV mensuales): quien se fue antes no
+ * está. Para eso está `bajas_historicas` (form de desvinculación desde 2024 y
+ * planilla 2022-2023). Se cruza por mail o CUIT/RUT (seguro) o por nombre en
+ * el mismo país (posible), y solo cuenta una baja anterior a la postulación:
+ * una baja posterior es la misma persona que entró y se fue, no una que vuelve.
  */
 
 export type PaisPost = 'AR' | 'UY' | 'otro';
@@ -66,6 +72,19 @@ export type DesvRow = {
 export type MultaRow = { therapist_id: string; saldo: number | null; moneda: string | null; anulada_el: string | null; pago_confirmado_el: string | null };
 export type FantasmeoRow = { therapist_id: string; desde: string; hasta: string | null; motivo: string };
 
+export type BajaHist = {
+  id: string;
+  fuente: 'form' | 'planilla_previa';
+  pais: 'AR' | 'UY' | 'CL' | null;
+  nombre: string;
+  email: string | null;
+  cuit: string | null;
+  fecha: string | null; // 'YYYY-MM-DD'
+  anio: number | null;
+  quien: 'nuestra' | 'propia' | 'ambos' | null;
+  motivo: string | null;
+};
+
 /**
  * Historial, de lo más delicado a lo menos:
  * - baja_nuestra: lo desvinculamos nosotros. No avanza sin revisar por qué.
@@ -86,6 +105,10 @@ export type Cruce = {
   notaBaja: string | null;
   multaPendiente: { saldo: number; moneda: string } | null;
   fantasmeos: number;
+  // Baja anterior a esta postulación en el historial (form de desvinculación
+  // o planilla previa), con cómo coincidió.
+  bajaHist: BajaHist | null;
+  bajaHistPor: 'mail' | 'cuit' | 'nombre' | null;
   // Postulaciones anteriores de la misma persona (mismo mail o mismo CUIT).
   previas: Postulacion[];
   // Última decisión vigente de alguna previa, para ver "ya dijimos que no".
@@ -151,7 +174,22 @@ export function cruzar(
   desvs: DesvRow[],
   multas: MultaRow[],
   fantasmeos: FantasmeoRow[],
+  bajasHist: BajaHist[] = [],
 ): Map<string, Cruce> {
+  const bajaPorMail = new Map<string, BajaHist[]>();
+  const bajaPorCuit = new Map<string, BajaHist[]>();
+  const bajaPorNombre = new Map<string, BajaHist[]>();
+  const sumar = (m: Map<string, BajaHist[]>, k: string, b: BajaHist) => {
+    const l = m.get(k) ?? [];
+    if (!l.includes(b)) l.push(b);
+    m.set(k, l);
+  };
+  for (const b of bajasHist) {
+    if (b.email) sumar(bajaPorMail, b.email.toLowerCase(), b);
+    if (b.cuit) sumar(bajaPorCuit, b.cuit, b);
+    for (const k of clavesNombre(b.nombre)) sumar(bajaPorNombre, k, b);
+  }
+
   const terPorMail = new Map<string, Ter>();
   const terPorNombre = new Map<string, Ter[]>();
   for (const t of ters) {
@@ -266,16 +304,58 @@ export function cruzar(
     else if (ter && desv?.motivo === 'por_el_psicologo') historial = 'baja_propia';
     else if (ter) historial = ter.activo ? 'activo' : 'baja';
 
+    // Historial de bajas. Solo las anteriores a esta postulación (la de la
+    // planilla previa no tiene día: vale el año). Seguro: mail o CUIT de
+    // cualquier postulación de la persona. Si no, nombre en el mismo país.
+    const dia = p.postulado_at.slice(0, 10);
+    const anterior = (b: BajaHist) => (b.fecha ? b.fecha < dia : b.anio != null && `${b.anio}-12-31` < dia);
+    const ultima = (l: BajaHist[]) =>
+      l.filter(anterior).sort((a, b) => ((a.fecha ?? `${a.anio}`) < (b.fecha ?? `${b.anio}`) ? 1 : -1))[0] ?? null;
+    let bajaHist: BajaHist | null = null;
+    let bajaHistPor: Cruce['bajaHistPor'] = null;
+    const porMailB: BajaHist[] = [];
+    const porCuitB: BajaHist[] = [];
+    for (const q of [p, ...grupo]) {
+      porMailB.push(...(bajaPorMail.get(q.email.toLowerCase()) ?? []));
+      if (q.cuit) porCuitB.push(...(bajaPorCuit.get(q.cuit) ?? []));
+    }
+    bajaHist = ultima(porMailB);
+    if (bajaHist) bajaHistPor = 'mail';
+    else if ((bajaHist = ultima(porCuitB))) bajaHistPor = 'cuit';
+    else {
+      const cand: BajaHist[] = [];
+      for (const k of clavesNombre(p.nombre)) cand.push(...(bajaPorNombre.get(k) ?? []));
+      bajaHist = ultima(cand.filter((b) => b.pais === p.pais));
+      if (bajaHist) bajaHistPor = 'nombre';
+    }
+
+    // La baja del historial pesa cuando el dashboard no sabe nada mejor: no
+    // está en la plataforma, coincide solo por nombre, o está de baja sin
+    // salida cargada. Si hoy está activo, manda eso.
+    let motivoBaja: MotivoBaja | null = desv?.motivo ?? null;
+    let notaBaja: string | null = desv?.nota ?? (ter && !ter.activo ? ter.motivo_baja : null);
+    if (bajaHist && (historial === 'nuevo' || historial === 'posible' || historial === 'baja')) {
+      if (bajaHistPor !== 'nombre' || historial === 'baja') {
+        historial = bajaHist.quien === 'nuestra' ? 'baja_nuestra' : bajaHist.quien === 'propia' ? 'baja_propia' : 'baja';
+        motivoBaja = bajaHist.quien === 'nuestra' ? 'nuestra' : bajaHist.quien === 'propia' ? 'por_el_psicologo' : 'a_definir';
+        notaBaja = bajaHist.motivo;
+      } else {
+        historial = 'posible';
+      }
+    }
+
     const faltan = minimos(p);
     out.set(p.id, {
       historial,
       coincide,
       ter,
       otrosPorNombre,
-      motivoBaja: desv?.motivo ?? null,
-      notaBaja: desv?.nota ?? (ter && !ter.activo ? ter.motivo_baja : null),
+      motivoBaja,
+      notaBaja,
       multaPendiente: ter ? multaPorTer.get(ter.id) ?? null : null,
       fantasmeos: ter ? fantPorTer.get(ter.id) ?? 0 : 0,
+      bajaHist,
+      bajaHistPor,
       previas,
       decisionPrevia,
       decision: decPorPost.get(p.id) ?? null,
