@@ -30,6 +30,11 @@ export const maxDuration = 60;
  * psicólogos/as que ya no están en `therapists`) se guardan en
  * `bajas_historicas`. Es lo que usa Reclutamiento para reconocer a quien se fue
  * antes de que existiera el dashboard y se vuelve a postular.
+ *
+ * Las filas tachadas en la planilla son desvinculaciones que no se hicieron
+ * (la persona se iba a ir y se quedó, o volvió). Talent las tacha en vez de
+ * borrarlas. No cuentan como baja: se sacan del historial y no crean salida.
+ * Pasaba que gente activa aparecía en Reclutamiento como "ya estuvo".
  */
 
 // Las respuestas anteriores se importaron a mano el 2026-11-06.
@@ -48,9 +53,10 @@ type Fila = {
   pedido: string;
   motivo: string;
   cuit?: string; // la pregunta se agregó en octubre 2026
+  tachada?: boolean; // fila tachada en la planilla: no fue una baja
 };
 
-type Resultado = 'ya_estaba' | 'agregada' | 'creada' | 'sin_psicologo' | 'varios_psicologos' | 'anterior' | 'error';
+type Resultado = 'ya_estaba' | 'agregada' | 'creada' | 'sin_psicologo' | 'varios_psicologos' | 'anterior' | 'tachada' | 'error';
 
 type Ter = { id: string; nombre: string; pais: string; email: string | null };
 type Desv = {
@@ -189,13 +195,24 @@ export async function POST(request: Request) {
   try {
     // Primero el historial de bajas: no depende de encontrar al psicólogo/a.
     // Se actualiza si la fila cambió (alguien corrigió el nombre o el motivo).
-    const bajas = Array.from(new Map(filas.map(bajaHistorica).filter((b) => b !== null).map((b) => [b!.clave, b!])).values());
+    const bajas = Array.from(
+      new Map(filas.filter((f) => !f.tachada).map(bajaHistorica).filter((b) => b !== null).map((b) => [b!.clave, b!])).values(),
+    );
+    // Si la tacharon después de que entró, se saca.
+    const tachadas = Array.from(new Set(filas.filter((f) => f.tachada).map((f) => String(f.clave ?? '').trim()).filter(Boolean)));
     let bajasError: string | null = null;
     if (bajas.length) {
       const { error: e } = await sb.from('bajas_historicas').upsert(bajas, { onConflict: 'clave' });
       if (e) {
         bajasError = e.message;
         console.error('[talent/form-desvinculacion] bajas_historicas', e.message);
+      }
+    }
+    if (tachadas.length) {
+      const { error: e } = await sb.from('bajas_historicas').delete().eq('fuente', 'form').in('clave', tachadas);
+      if (e) {
+        bajasError = (bajasError ? bajasError + ' · ' : '') + e.message;
+        console.error('[talent/form-desvinculacion] bajas_historicas tachadas', e.message);
       }
     }
 
@@ -215,6 +232,10 @@ export async function POST(request: Request) {
       if (!clave) continue;
       if (porClave.has(clave)) {
         anotar(clave, 'ya_estaba');
+        continue;
+      }
+      if (f.tachada) {
+        anotar(clave, 'tachada');
         continue;
       }
       const dia = String(f.marca ?? '').slice(0, 10);
