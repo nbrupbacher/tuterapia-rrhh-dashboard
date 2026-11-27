@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import type { PaisFilter } from '@/lib/types';
 import {
@@ -50,6 +50,23 @@ const COLS_POST =
 type FiltroHist = 'T' | 'ya_estuvo' | Historial;
 type FiltroDec = 'T' | 'sin_decidir' | Decision;
 type Periodo = '30' | '90' | '365' | 'T';
+
+// Las tarjetas de arriba son atajos a una lista: cada una fija TODOS los
+// filtros (no solo uno), así la lista que abre coincide con el número de la
+// tarjeta. Antes cada una tocaba un filtro y dejaba los demás como estaban:
+// "Cumplen mínimos" seguía filtrando "Sin decidir", "Repiten" no hacía nada, y
+// como no quedaba marcada ni bajaba a la tabla, parecía que no andaban.
+const TEXTO_PERIODO: Record<Periodo, string> = { '30': 'últimos 30 días', '90': 'últimos 90 días', '365': 'último año', T: 'desde siempre' };
+type Vista = 'todas' | 'sin_decidir' | 'minimos' | 'ya_estuvo' | 'nuestra' | 'repiten';
+type Filtros = { hist: FiltroHist; dec: FiltroDec; soloMinimos: boolean; soloRepiten: boolean };
+const VISTAS: Record<Vista, { titulo: string; filtros: Filtros }> = {
+  todas: { titulo: 'Todas las postulaciones', filtros: { hist: 'T', dec: 'T', soloMinimos: false, soloRepiten: false } },
+  sin_decidir: { titulo: 'Sin decidir', filtros: { hist: 'T', dec: 'sin_decidir', soloMinimos: false, soloRepiten: false } },
+  minimos: { titulo: 'Cumplen los mínimos', filtros: { hist: 'T', dec: 'T', soloMinimos: true, soloRepiten: false } },
+  ya_estuvo: { titulo: 'Ya estuvieron en Tu Terapia', filtros: { hist: 'ya_estuvo', dec: 'T', soloMinimos: false, soloRepiten: false } },
+  nuestra: { titulo: 'Baja nuestra', filtros: { hist: 'baja_nuestra', dec: 'T', soloMinimos: false, soloRepiten: false } },
+  repiten: { titulo: 'Se postularon más de una vez', filtros: { hist: 'T', dec: 'T', soloMinimos: false, soloRepiten: true } },
+};
 
 const PREGUNTAS: [string, string][] = [
   ['disponibilidad', 'Días y horas disponibles'],
@@ -120,10 +137,27 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
   const [hist, setHist] = useState<FiltroHist>('T');
   const [dec, setDec] = useState<FiltroDec>('sin_decidir');
   const [soloMinimos, setSoloMinimos] = useState(false);
+  const [soloRepiten, setSoloRepiten] = useState(false);
   const [periodo, setPeriodo] = useState<Periodo>('90');
   const [otrosPaises, setOtrosPaises] = useState(false);
   const [mostrar, setMostrar] = useState(MOSTRAR);
   const [abierta, setAbierta] = useState<Postulacion | null>(null);
+  const listaRef = useRef<HTMLDivElement>(null);
+
+  const vistaActual = (Object.keys(VISTAS) as Vista[]).find((v) => {
+    const f = VISTAS[v].filtros;
+    return f.hist === hist && f.dec === dec && f.soloMinimos === soloMinimos && f.soloRepiten === soloRepiten;
+  });
+  const abrirVista = (v: Vista) => {
+    const f = VISTAS[v].filtros;
+    setHist(f.hist);
+    setDec(f.dec);
+    setSoloMinimos(f.soloMinimos);
+    setSoloRepiten(f.soloRepiten);
+    setMostrar(MOSTRAR);
+    // Después del render, para que baje a la lista ya filtrada.
+    setTimeout(() => listaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
 
   const cargar = useCallback(async () => {
     setError(null);
@@ -210,13 +244,14 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
       if (dec === 'sin_decidir' && c.decision) return false;
       if (dec !== 'T' && dec !== 'sin_decidir' && c.decision?.decision !== dec) return false;
       if (soloMinimos && !c.cumpleMinimos) return false;
+      if (soloRepiten && !c.previas.length) return false;
       if (b) {
         const porCuit = bDigitos.length >= 4 && (p.cuit ?? '').includes(bDigitos);
         if (!p.nombre.toLowerCase().includes(b) && !p.email.includes(b) && !porCuit) return false;
       }
       return true;
     });
-  }, [enPeriodo, cruces, busqueda, hist, dec, soloMinimos]);
+  }, [enPeriodo, cruces, busqueda, hist, dec, soloMinimos, soloRepiten]);
 
   if (cargando) return <div className="empty-wrap">Cargando postulaciones…</div>;
 
@@ -230,30 +265,34 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
       )}
 
       <div className="ks" style={{ marginTop: 8 }}>
-        <div className="k" onClick={() => { setHist('T'); setDec('T'); setSoloMinimos(false); }}>
-          <div className="kv">{kpis.total}</div>
-          <div className="kl">Postulaciones</div>
-        </div>
-        <div className="k" onClick={() => { setHist('T'); setDec('sin_decidir'); }}>
-          <div className="kv" style={{ color: 'var(--ac)' }}>{kpis.sinDecidir}</div>
-          <div className="kl">Sin decidir</div>
-        </div>
-        <div className="k" onClick={() => { setSoloMinimos(true); setHist('T'); }}>
-          <div className="kv" style={{ color: 'var(--v)' }}>{kpis.minimos}</div>
-          <div className="kl">Cumplen mínimos</div>
-        </div>
-        <div className="k" onClick={() => { setHist('ya_estuvo'); setDec('T'); }}>
-          <div className="kv" style={{ color: 'var(--am)' }}>{kpis.yaEstuvo}</div>
-          <div className="kl">Ya estuvieron</div>
-        </div>
-        <div className="k" onClick={() => { setHist('baja_nuestra'); setDec('T'); }}>
-          <div className="kv" style={{ color: 'var(--r)' }}>{kpis.nuestra}</div>
-          <div className="kl">Baja nuestra</div>
-        </div>
-        <div className="k" title="Se postularon más de una vez (mismo mail o mismo CUIT/RUT)">
-          <div className="kv">{kpis.repiten}</div>
-          <div className="kl">Repiten</div>
-        </div>
+        {(
+          [
+            ['todas', kpis.total, 'Postulaciones', undefined, undefined],
+            ['sin_decidir', kpis.sinDecidir, 'Sin decidir', 'var(--ac)', undefined],
+            ['minimos', kpis.minimos, 'Cumplen mínimos', 'var(--v)', undefined],
+            ['ya_estuvo', kpis.yaEstuvo, 'Ya estuvieron', 'var(--am)', undefined],
+            ['nuestra', kpis.nuestra, 'Baja nuestra', 'var(--r)', undefined],
+            ['repiten', kpis.repiten, 'Repiten', undefined, 'Se postularon más de una vez (mismo mail o mismo CUIT/RUT)'],
+          ] as [Vista, number, string, string | undefined, string | undefined][]
+        ).map(([v, n, label, color, title]) => (
+          <div
+            key={v}
+            className={`k${vistaActual === v ? ' rc-on' : ''}`}
+            role="button"
+            tabIndex={0}
+            title={title ?? `Ver la lista: ${VISTAS[v].titulo}`}
+            onClick={() => abrirVista(v)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                abrirVista(v);
+              }
+            }}
+          >
+            <div className="kv" style={color ? { color } : undefined}>{n}</div>
+            <div className="kl">{label}</div>
+          </div>
+        ))}
       </div>
 
       <div className="ctr">
@@ -283,12 +322,34 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
         <label className="rc-chk">
           <input type="checkbox" checked={soloMinimos} onChange={(e) => setSoloMinimos(e.target.checked)} /> Solo cumplen mínimos
         </label>
+        <label className="rc-chk">
+          <input type="checkbox" checked={soloRepiten} onChange={(e) => setSoloRepiten(e.target.checked)} /> Solo repiten
+        </label>
         {pais === 'T' && cantOtros > 0 && (
           <label className="rc-chk" title="Chile cerró. Se guardan por si alguien se muda a AR o UY.">
             <input type="checkbox" checked={otrosPaises} onChange={(e) => setOtrosPaises(e.target.checked)} /> Otros países ({cantOtros})
           </label>
         )}
         <span className="cnt">{filas.length}</span>
+      </div>
+
+      <div className="rc-vista" ref={listaRef}>
+        <span>
+          {vistaActual ? VISTAS[vistaActual].titulo : 'Filtro a medida'} · {TEXTO_PERIODO[periodo]}
+          {busqueda.trim() && ` · "${busqueda.trim()}"`} · <b>{filas.length}</b>
+        </span>
+        {(vistaActual !== 'todas' || busqueda.trim()) && (
+          <button
+            className="rc-vista-x"
+            title="Ver todas"
+            onClick={() => {
+              setBusqueda('');
+              abrirVista('todas');
+            }}
+          >
+            ✕ Ver todas
+          </button>
+        )}
       </div>
 
       <div className="tw">
