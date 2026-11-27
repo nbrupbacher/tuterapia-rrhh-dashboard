@@ -14,11 +14,14 @@ import {
   type Decision,
   type DecisionRow,
   type DesvRow,
+  type Etapa,
   type FantasmeoRow,
   type Historial,
   type MultaRow,
   type Postulacion,
+  type ProcesoRow,
   type Ter,
+  ETAPAS,
 } from '@/lib/reclutamiento';
 import './reclutamiento.css';
 
@@ -103,6 +106,28 @@ function fecha(iso: string | null | undefined): string {
   return d.toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
+// Etapas de la planilla "Proceso y Contratos", en el orden del proceso.
+const TEXTO_ETAPA: Record<Etapa, string> = {
+  entrevista: 'Entrevista',
+  proximos_pasos: 'Próximos pasos',
+  ultimos_pasos: 'Últimos pasos',
+  contrato: 'Envío de contrato',
+  comienza: 'Comenzó',
+  no_avanza: 'No avanza',
+  otro: 'Otro',
+};
+const CLASE_ETAPA: Record<Etapa, string> = {
+  entrevista: 'sit sit-b',
+  proximos_pasos: 'sit sit-b',
+  ultimos_pasos: 'sit sit-b',
+  contrato: 'sit sit-y',
+  comienza: 'sit sit-g',
+  no_avanza: 'sit sit-r',
+  otro: 'sit sit-o',
+};
+// 'en_proceso' = de Entrevista a Envío de contrato: lo que hay que mover.
+type FiltroEtapa = 'T' | 'sin_proceso' | 'en_proceso' | Etapa;
+
 const TEXTO_QUIEN: Record<string, string> = {
   nuestra: 'la desvinculamos nosotros',
   propia: 'se fue por su cuenta',
@@ -125,12 +150,20 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
   const [error, setError] = useState<string | null>(null);
   const [posts, setPosts] = useState<Postulacion[]>([]);
   const [decisiones, setDecisiones] = useState<DecisionRow[]>([]);
-  const [base, setBase] = useState<{ ters: Ter[]; desvs: DesvRow[]; multas: MultaRow[]; fants: FantasmeoRow[]; bajas: BajaHist[] }>({
+  const [base, setBase] = useState<{
+    ters: Ter[];
+    desvs: DesvRow[];
+    multas: MultaRow[];
+    fants: FantasmeoRow[];
+    bajas: BajaHist[];
+    procs: ProcesoRow[];
+  }>({
     ters: [],
     desvs: [],
     multas: [],
     fants: [],
     bajas: [],
+    procs: [],
   });
 
   const [busqueda, setBusqueda] = useState('');
@@ -138,6 +171,7 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
   const [dec, setDec] = useState<FiltroDec>('sin_decidir');
   const [soloMinimos, setSoloMinimos] = useState(false);
   const [soloRepiten, setSoloRepiten] = useState(false);
+  const [etapa, setEtapa] = useState<FiltroEtapa>('T');
   const [periodo, setPeriodo] = useState<Periodo>('90');
   const [otrosPaises, setOtrosPaises] = useState(false);
   const [mostrar, setMostrar] = useState(MOSTRAR);
@@ -146,7 +180,7 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
 
   const vistaActual = (Object.keys(VISTAS) as Vista[]).find((v) => {
     const f = VISTAS[v].filtros;
-    return f.hist === hist && f.dec === dec && f.soloMinimos === soloMinimos && f.soloRepiten === soloRepiten;
+    return f.hist === hist && f.dec === dec && f.soloMinimos === soloMinimos && f.soloRepiten === soloRepiten && etapa === 'T';
   });
   const abrirVista = (v: Vista) => {
     const f = VISTAS[v].filtros;
@@ -154,6 +188,7 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
     setDec(f.dec);
     setSoloMinimos(f.soloMinimos);
     setSoloRepiten(f.soloRepiten);
+    setEtapa('T');
     setMostrar(MOSTRAR);
     // Después del render, para que baje a la lista ya filtrada.
     setTimeout(() => listaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
@@ -162,7 +197,7 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
   const cargar = useCallback(async () => {
     setError(null);
     try {
-      const [p, d, ters, desvs, multas, fants, bajas] = await Promise.all([
+      const [p, d, ters, desvs, multas, fants, bajas, procs] = await Promise.all([
         leerTodo<Postulacion>('postulaciones', COLS_POST, 'postulado_at'),
         leerTodo<DecisionRow>('postulacion_decisiones', 'id,postulacion_id,decision,motivo,decidido_por,created_at'),
         leerTodo<Ter>('therapists', 'id,nombre,pais,email,activo,inicio,fecha_baja,motivo_baja'),
@@ -170,10 +205,14 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
         leerTodo<MultaRow>('multas', 'therapist_id,saldo,moneda,anulada_el,pago_confirmado_el'),
         leerTodo<FantasmeoRow>('fantasmeos', 'therapist_id,desde,hasta,motivo'),
         leerTodo<BajaHist>('bajas_historicas', 'id,fuente,pais,nombre,email,cuit,fecha,anio,quien,motivo'),
+        // Si falla (la planilla todavía no se sincronizó), el resto anda igual.
+        leerTodo<ProcesoRow>('procesos', 'id,pais,fila,mes,nombre,emails,recruiter,estado,estado_texto,fecha_ingreso').catch(
+          () => [] as ProcesoRow[],
+        ),
       ]);
       setPosts(p);
       setDecisiones(d);
-      setBase({ ters, desvs, multas, fants, bajas });
+      setBase({ ters, desvs, multas, fants, bajas, procs });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cargar');
     } finally {
@@ -186,7 +225,7 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
   }, [cargar]);
 
   const cruces = useMemo(
-    () => cruzar(posts, decisiones, base.ters, base.desvs, base.multas, base.fants, base.bajas),
+    () => cruzar(posts, decisiones, base.ters, base.desvs, base.multas, base.fants, base.bajas, base.procs),
     [posts, decisiones, base],
   );
 
@@ -245,13 +284,17 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
       if (dec !== 'T' && dec !== 'sin_decidir' && c.decision?.decision !== dec) return false;
       if (soloMinimos && !c.cumpleMinimos) return false;
       if (soloRepiten && !c.previas.length) return false;
+      if (etapa === 'sin_proceso' && c.proceso) return false;
+      if (etapa === 'en_proceso' && !(c.proceso && ['entrevista', 'proximos_pasos', 'ultimos_pasos', 'contrato'].includes(c.proceso.estado)))
+        return false;
+      if (etapa !== 'T' && etapa !== 'sin_proceso' && etapa !== 'en_proceso' && c.proceso?.estado !== etapa) return false;
       if (b) {
         const porCuit = bDigitos.length >= 4 && (p.cuit ?? '').includes(bDigitos);
         if (!p.nombre.toLowerCase().includes(b) && !p.email.includes(b) && !porCuit) return false;
       }
       return true;
     });
-  }, [enPeriodo, cruces, busqueda, hist, dec, soloMinimos, soloRepiten]);
+  }, [enPeriodo, cruces, busqueda, hist, dec, soloMinimos, soloRepiten, etapa]);
 
   if (cargando) return <div className="empty-wrap">Cargando postulaciones…</div>;
 
@@ -319,6 +362,14 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
             <option key={d} value={d}>{TEXTO_DECISION[d]}</option>
           ))}
         </select>
+        <select value={etapa} onChange={(e) => setEtapa(e.target.value as FiltroEtapa)} title="Etapa en la planilla Proceso y Contratos">
+          <option value="T">Todas las etapas</option>
+          <option value="en_proceso">En proceso (entrevista a contrato)</option>
+          {ETAPAS.map((x) => (
+            <option key={x} value={x}>{TEXTO_ETAPA[x]}</option>
+          ))}
+          <option value="sin_proceso">Sin proceso</option>
+        </select>
         <label className="rc-chk">
           <input type="checkbox" checked={soloMinimos} onChange={(e) => setSoloMinimos(e.target.checked)} /> Solo cumplen mínimos
         </label>
@@ -362,6 +413,7 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
               <th style={{ width: 160 }}>Historial</th>
               <th>En la plataforma</th>
               <th style={{ width: 150 }}>Mínimos</th>
+              <th style={{ width: 130 }}>Etapa</th>
               <th style={{ width: 110 }}>Decisión</th>
             </tr>
           </thead>
@@ -422,6 +474,25 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
                       <span className="sit sit-g">Cumple</span>
                     ) : (
                       <span className="rc-sub">Falta: {c.minimosQueFaltan.join(', ')}</span>
+                    )}
+                  </td>
+                  <td>
+                    {c.proceso ? (
+                      <>
+                        <span
+                          className={CLASE_ETAPA[c.proceso.estado]}
+                          style={c.procesoPor === 'nombre' ? { borderStyle: 'dashed' } : undefined}
+                          title={c.proceso.estado_texto ?? ''}
+                        >
+                          {c.proceso.estado === 'otro' ? (c.proceso.estado_texto ?? 'Otro').slice(0, 24) : TEXTO_ETAPA[c.proceso.estado]}
+                        </span>
+                        <div className="rc-sub">
+                          {[c.proceso.mes, c.proceso.recruiter].filter(Boolean).join(' · ')}
+                          {c.procesoPor === 'nombre' && ' · por nombre'}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="rc-sub">—</span>
                     )}
                   </td>
                   <td>
@@ -610,6 +681,39 @@ function Ficha({
               </div>
             </div>
           )}
+
+          {/* Etapa en "Proceso y Contratos": la planilla sigue mandando (de ahí
+              salen los mails), acá solo se ve. */}
+          <div className="ms">
+            <div className="mst">Proceso y Contratos</div>
+            {c.procesos.length ? (
+              <div className="rc-box">
+                {c.procesos
+                  .slice()
+                  .reverse()
+                  .map((r, i) => (
+                    <div key={r.id} style={{ marginTop: i ? 6 : 0, opacity: i ? 0.7 : 1 }}>
+                      <span className={CLASE_ETAPA[r.estado]}>{r.estado === 'otro' ? 'Otro' : TEXTO_ETAPA[r.estado]}</span>{' '}
+                      <span className="rc-sub">
+                        {r.pais === 'AR' ? 'ARG' : 'URU'} fila {r.fila}
+                        {r.mes && ` · ${r.mes}`}
+                        {r.recruiter && ` · ${r.recruiter}`}
+                        {r.fecha_ingreso && ` · ingreso ${r.fecha_ingreso}`}
+                        {r.nombre !== p.nombre && ` · figura como ${r.nombre}`}
+                      </span>
+                      {r.estado === 'otro' && r.estado_texto && <div className="rc-sub">{r.estado_texto}</div>}
+                    </div>
+                  ))}
+                {c.procesoPor === 'nombre' && (
+                  <div className="rc-sub" style={{ marginTop: 6 }}>
+                    Coincide solo el nombre (el mail de la planilla es otro): confirmalo.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rc-sub">Todavía no está en la planilla Proceso y Contratos.</div>
+            )}
+          </div>
 
           {c.previas.length > 0 && (
             <div className="ms">
