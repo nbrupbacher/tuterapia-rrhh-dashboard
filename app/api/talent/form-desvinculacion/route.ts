@@ -104,9 +104,13 @@ function bajaHistorica(f: Fila) {
   const dia = String(f.marca ?? '').slice(0, 10);
   const nombre = String(f.nombre ?? '').trim();
   if (!clave || !nombre || !/^\d{4}-\d{2}-\d{2}$/.test(dia)) return null;
-  // La fecha de aviso a veces viene mal tipeada ("3/1/0024"): si no es
-  // razonable, vale la de la respuesta.
-  const aviso = f.aviso && /^20\d{2}-\d{2}-\d{2}$/.test(f.aviso) ? f.aviso : dia;
+  // La fecha de aviso a veces viene mal tipeada ("3/1/0024", 2035 por 2025,
+  // un año de menos en enero): si está a más de 60 días de la respuesta, vale
+  // la de la respuesta. Una fecha corrida al futuro dejaba la baja como
+  // "posterior" a la postulación y el cruce no la veía.
+  const avisoOk =
+    f.aviso && /^\d{4}-\d{2}-\d{2}$/.test(f.aviso) && Math.abs(Date.parse(f.aviso) - Date.parse(dia)) <= 60 * 86_400_000;
+  const aviso = avisoOk ? f.aviso! : dia;
   const p = normalizar(String(f.pais ?? ''));
   const pais = p.startsWith('arg') ? 'AR' : p.startsWith('uru') ? 'UY' : p.startsWith('chi') ? 'CL' : null;
   const pedido = String(f.pedido ?? '');

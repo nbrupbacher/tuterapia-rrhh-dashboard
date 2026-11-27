@@ -328,7 +328,11 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
                     {c.previas.length > 0 && <div className="rc-sub">Se postuló {c.previas.length + 1} veces</div>}
                   </td>
                   <td>
-                    {c.ter ? (
+                    {c.ter && c.entroDespues ? (
+                      <span className="rc-sub">
+                        Entró con esta postulación ({c.ter.nombre}, alta {fecha(c.ter.inicio)})
+                      </span>
+                    ) : c.ter ? (
                       <>
                         <div>
                           {c.ter.nombre} <span className="rc-sub">· por {c.coincide}</span>
@@ -477,6 +481,11 @@ function Ficha({
           {/* Historial en la plataforma: lo primero que hay que ver. */}
           <div className="ms">
             <div className="mst">En la plataforma</div>
+            {c.ter && c.entroDespues && (
+              <div className="rc-sub" style={{ marginBottom: 4 }}>
+                Esta es la postulación con la que entró (alta {fecha(c.ter.inicio)}): no es alguien que vuelve.
+              </div>
+            )}
             {c.ter ? (
               <div className={`rc-box ${avisoNuestra ? 'rc-box-r' : ''}`}>
                 <div>

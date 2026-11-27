@@ -109,6 +109,9 @@ export type Cruce = {
   // o planilla previa), con cómo coincidió.
   bajaHist: BajaHist | null;
   bajaHistPor: 'mail' | 'cuit' | 'nombre' | null;
+  // La persona de la plataforma entró DESPUÉS de esta postulación: es la
+  // postulación con la que entró, no una que vuelve.
+  entroDespues: boolean;
   // Postulaciones anteriores de la misma persona (mismo mail o mismo CUIT).
   previas: Postulacion[];
   // Última decisión vigente de alguna previa, para ver "ya dijimos que no".
@@ -296,15 +299,24 @@ export function cruzar(
       }
     }
 
+    // Si el alta es posterior a la postulación, esta es la postulación con la
+    // que entró: no "ya estuvo". Pasaba que quien se postuló, entró y después
+    // lo desvinculamos aparecía como "Baja nuestra" en su postulación
+    // original. Un alta en el futuro es un error de carga: no se usa.
+    const hoy = new Date().toISOString().slice(0, 10);
+    const entroDespues =
+      !!ter && !!ter.inicio && ter.inicio <= hoy && p.postulado_at.slice(0, 10) <= ter.inicio;
+
     const desv = ter ? desvPorTer.get(ter.id) ?? null : null;
     let historial: Historial = 'nuevo';
-    if (ter && coincide === 'nombre') historial = 'posible';
+    if (entroDespues) historial = 'nuevo';
+    else if (ter && coincide === 'nombre') historial = 'posible';
     else if (ter && ter.activo && !desv?.desvinculado_at) historial = 'activo';
     else if (ter && desv?.motivo === 'nuestra') historial = 'baja_nuestra';
     else if (ter && desv?.motivo === 'por_el_psicologo') historial = 'baja_propia';
     else if (ter) historial = ter.activo ? 'activo' : 'baja';
 
-    // Historial de bajas. Solo las anteriores a esta postulación (la de la
+    // Historial de bajas. Solo las anteriores a esta postulación (la del
     // planilla previa no tiene día: vale el año). Seguro: mail o CUIT de
     // cualquier postulación de la persona. Si no, nombre en el mismo país.
     const dia = p.postulado_at.slice(0, 10);
@@ -356,6 +368,7 @@ export function cruzar(
       fantasmeos: ter ? fantPorTer.get(ter.id) ?? 0 : 0,
       bajaHist,
       bajaHistPor,
+      entroDespues,
       previas,
       decisionPrevia,
       decision: decPorPost.get(p.id) ?? null,
