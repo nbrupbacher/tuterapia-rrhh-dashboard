@@ -13,7 +13,7 @@
 --   Lo escribe app/api/talent/form-desvinculacion con cada fila que le manda
 --   el Apps Script de esa planilla, así las bajas nuevas entran solas.
 -- - 'planilla_previa': la planilla "Desv. previo 2024" (2022-2023), cargada
---   una sola vez el 2026-11-27 (172 filas). Solo tiene nombres: ahí el cruce
+--   una sola vez el 2026-11-27 (167 filas). Solo tiene nombres: ahí el cruce
 --   es solo por nombre.
 --
 -- No se guardan los datos de pacientes que pide el form.
