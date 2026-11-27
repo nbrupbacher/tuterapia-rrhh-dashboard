@@ -12,14 +12,19 @@
  *
  * No escribe en la pestaña de respuestas: el form agrega columnas ahí cuando
  * se le suman preguntas.
+ *
+ * Manda TODAS las filas, no solo las nuevas: el dashboard las guarda en el
+ * historial de bajas (Reclutamiento las usa para reconocer a quien se fue y se
+ * vuelve a postular). Las salidas en En vivo se arman solo con las de
+ * noviembre 2026 en adelante; eso lo decide el dashboard.
  */
 
 var API = 'https://tuterapia-rrhh-dashboard.vercel.app/api/talent/form-desvinculacion';
 var HOJA_RESPUESTAS = 'Respuestas de formulario 1';
 var HOJA_ESTADO = 'Dashboard';
 var ZONA = 'America/Montevideo';
-// Las anteriores ya se cargaron a mano en el dashboard.
-var DESDE = new Date(2026, 10, 1); // 1 de noviembre de 2026
+// Opcional: la pregunta se agregó en octubre 2026. Si no está, se manda vacío.
+var TITULO_CUIT = 'Rut/Cuit';
 
 // Comienzo del título de cada columna (las preguntas son largas).
 var TITULOS = {
@@ -38,7 +43,7 @@ var TEXTO = {
   creada: 'Salida nueva en el dashboard',
   sin_psicologo: 'No se encontró al psicólogo/a: revisar el nombre',
   varios_psicologos: 'Hay más de un psicólogo/a con ese nombre: cargar a mano',
-  anterior: 'Anterior a noviembre 2026 (ya importado)',
+  anterior: 'Anterior a noviembre 2026: solo en el historial de bajas',
   error: 'Error',
 };
 
@@ -81,8 +86,8 @@ function sincronizar() {
     Session.getActiveUser().getEmail();
     var filas = leerFilas();
     if (filas.length === 0) {
-      estado.getRange('A1').setValue('Último envío: ' + ahora() + ' · no hay respuestas desde noviembre 2026');
-      return 'No hay respuestas nuevas para mandar.';
+      estado.getRange('A1').setValue('Último envío: ' + ahora() + ' · no hay respuestas');
+      return 'No hay respuestas para mandar.';
     }
     var res = llamar({ filas: filas });
     escribirEstado(estado, filas, res.resultados || {});
@@ -109,12 +114,13 @@ function leerFilas() {
     col[k] = titulos.findIndex(function (t) { return t.indexOf(TITULOS[k]) === 0; });
     if (col[k] < 0) throw new Error('No encuentro la columna "' + TITULOS[k] + '…"');
   });
+  var colCuit = titulos.findIndex(function (t) { return t.indexOf(TITULO_CUIT) === 0; });
 
   var filas = [];
   for (var i = 1; i < datos.length; i++) {
     var f = datos[i];
     var marca = f[col.marca];
-    if (!(marca instanceof Date) || marca < DESDE) continue;
+    if (!(marca instanceof Date)) continue;
     var email = String(f[col.email]).trim().toLowerCase();
     var marcaTxt = Utilities.formatDate(marca, ZONA, 'yyyy-MM-dd HH:mm:ss');
     var aviso = f[col.aviso];
@@ -127,6 +133,7 @@ function leerFilas() {
       aviso: aviso instanceof Date ? Utilities.formatDate(aviso, ZONA, 'yyyy-MM-dd') : null,
       pedido: String(f[col.pedido]).trim(),
       motivo: String(f[col.motivo]).trim(),
+      cuit: colCuit >= 0 ? String(f[colCuit]).trim() : '',
     });
   }
   return filas;

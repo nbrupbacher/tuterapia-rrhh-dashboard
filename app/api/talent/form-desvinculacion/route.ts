@@ -25,6 +25,11 @@ export const maxDuration = 60;
  *   duplican las que se cargaron antes a mano o desde Monitorear.
  *
  * Lo que ya se cargó no se pisa: el dashboard es donde se corrige.
+ *
+ * Aparte, TODAS las filas (también las anteriores a FORM_DESDE y las de
+ * psicólogos/as que ya no están en `therapists`) se guardan en
+ * `bajas_historicas`. Es lo que usa Reclutamiento para reconocer a quien se fue
+ * antes de que existiera el dashboard y se vuelve a postular.
  */
 
 // Las respuestas anteriores se importaron a mano el 2026-11-06.
@@ -42,6 +47,7 @@ type Fila = {
   aviso: string | null; // 'YYYY-MM-DD'
   pedido: string;
   motivo: string;
+  cuit?: string; // la pregunta se agregó en octubre 2026
 };
 
 type Resultado = 'ya_estaba' | 'agregada' | 'creada' | 'sin_psicologo' | 'varios_psicologos' | 'anterior' | 'error';
@@ -90,6 +96,37 @@ function motivoDe(pedido: string): 'por_el_psicologo' | 'nuestra' | 'a_definir' 
 function paisDe(pais: string): string | null {
   const p = normalizar(pais);
   return p.startsWith('arg') ? 'AR' : p.startsWith('uru') ? 'UY' : null;
+}
+
+/** Fila del form → `bajas_historicas`. Null si no tiene marca o nombre. */
+function bajaHistorica(f: Fila) {
+  const clave = String(f.clave ?? '').trim();
+  const dia = String(f.marca ?? '').slice(0, 10);
+  const nombre = String(f.nombre ?? '').trim();
+  if (!clave || !nombre || !/^\d{4}-\d{2}-\d{2}$/.test(dia)) return null;
+  // La fecha de aviso a veces viene mal tipeada ("3/1/0024"): si no es
+  // razonable, vale la de la respuesta.
+  const aviso = f.aviso && /^20\d{2}-\d{2}-\d{2}$/.test(f.aviso) ? f.aviso : dia;
+  const p = normalizar(String(f.pais ?? ''));
+  const pais = p.startsWith('arg') ? 'AR' : p.startsWith('uru') ? 'UY' : p.startsWith('chi') ? 'CL' : null;
+  const pedido = String(f.pedido ?? '');
+  const m = motivoDe(pedido);
+  const quien = m === 'nuestra' ? 'nuestra' : m === 'por_el_psicologo' ? 'propia' : normalizar(pedido) ? 'ambos' : null;
+  const cuit = String(f.cuit ?? '').replace(/\D/g, '');
+  const email = String(f.email ?? '').trim().toLowerCase();
+  return {
+    clave,
+    fuente: 'form',
+    pais,
+    nombre,
+    // Si lo completó Talent, el mail es el nuestro: no sirve para cruzar.
+    email: email && !esDeTuTerapia(email) ? email : null,
+    cuit: cuit.length >= 7 ? cuit : null,
+    fecha: aviso,
+    anio: Number(aviso.slice(0, 4)),
+    quien,
+    motivo: String(f.motivo ?? '').trim().slice(0, 500) || null,
+  };
 }
 
 /** Marca temporal de Montevideo → ISO con zona. */
@@ -146,6 +183,18 @@ export async function POST(request: Request) {
   }
 
   try {
+    // Primero el historial de bajas: no depende de encontrar al psicólogo/a.
+    // Se actualiza si la fila cambió (alguien corrigió el nombre o el motivo).
+    const bajas = Array.from(new Map(filas.map(bajaHistorica).filter((b) => b !== null).map((b) => [b!.clave, b!])).values());
+    let bajasError: string | null = null;
+    if (bajas.length) {
+      const { error: e } = await sb.from('bajas_historicas').upsert(bajas, { onConflict: 'clave' });
+      if (e) {
+        bajasError = e.message;
+        console.error('[talent/form-desvinculacion] bajas_historicas', e.message);
+      }
+    }
+
     const [ters, desvs] = await Promise.all([
       leerTodo<Ter>(sb, 'therapists', 'id,nombre,pais,email'),
       leerTodo<Desv>(sb, 'desvinculaciones', 'id,therapist_id,form_clave,form_enviado_at,desvinculado_at,desactivado_at,cancelada_at,created_at'),
@@ -257,8 +306,8 @@ export async function POST(request: Request) {
 
     const resumen: Record<string, number> = {};
     for (const r of Object.values(resultados)) resumen[r.resultado] = (resumen[r.resultado] ?? 0) + 1;
-    console.log('[talent/form-desvinculacion]', email, resumen);
-    return NextResponse.json({ resultados, resumen });
+    console.log('[talent/form-desvinculacion]', email, resumen, 'bajas', bajas.length);
+    return NextResponse.json({ resultados, resumen, bajas_historicas: bajasError ? { error: bajasError } : { guardadas: bajas.length } });
   } catch (e) {
     console.error('[talent/form-desvinculacion] falló', e);
     return errorJson(e instanceof Error ? e.message : 'error desconocido', 500);

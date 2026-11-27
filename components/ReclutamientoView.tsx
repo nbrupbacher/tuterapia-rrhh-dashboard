@@ -9,6 +9,7 @@ import {
   TEXTO_DECISION,
   TEXTO_HISTORIAL,
   TEXTO_MOTIVO_BAJA,
+  type BajaHist,
   type Cruce,
   type Decision,
   type DecisionRow,
@@ -27,8 +28,9 @@ import './reclutamiento.css';
  *
  * Las respuestas llegan solas (apps-script/postulaciones →
  * app/api/talent/postulaciones). El cruce no se guarda: se arma acá cada vez
- * contra therapists, desvinculaciones, multas y fantasmeos (lib/reclutamiento),
- * así una baja nueva o el CSV del mes se ven enseguida.
+ * contra therapists, desvinculaciones, multas, fantasmeos y el historial de
+ * bajas anteriores al dashboard (lib/reclutamiento), así una baja nueva o el
+ * CSV del mes se ven enseguida.
  *
  * Lo que decide Talent queda en `postulacion_decisiones`, con motivo
  * obligatorio y sin pisar lo anterior: si la persona se vuelve a postular, se
@@ -84,6 +86,19 @@ function fecha(iso: string | null | undefined): string {
   return d.toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
+const TEXTO_QUIEN: Record<string, string> = {
+  nuestra: 'la desvinculamos nosotros',
+  propia: 'se fue por su cuenta',
+  ambos: 'de común acuerdo',
+};
+
+/** "Baja 04/02/25 (form de desvinculación) · se fue por su cuenta". */
+function textoBajaHist(b: BajaHist): string {
+  const cuando = b.fecha ? fecha(b.fecha) : b.anio ? String(b.anio) : 'sin fecha';
+  const fuente = b.fuente === 'form' ? 'form de desvinculación' : 'planilla de bajas previa a 2024';
+  return `Baja ${cuando} (${fuente})${b.quien ? ` · ${TEXTO_QUIEN[b.quien]}` : ''}`;
+}
+
 function esLink(s: string) {
   return /^https?:\/\//i.test(s.trim());
 }
@@ -93,11 +108,12 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
   const [error, setError] = useState<string | null>(null);
   const [posts, setPosts] = useState<Postulacion[]>([]);
   const [decisiones, setDecisiones] = useState<DecisionRow[]>([]);
-  const [base, setBase] = useState<{ ters: Ter[]; desvs: DesvRow[]; multas: MultaRow[]; fants: FantasmeoRow[] }>({
+  const [base, setBase] = useState<{ ters: Ter[]; desvs: DesvRow[]; multas: MultaRow[]; fants: FantasmeoRow[]; bajas: BajaHist[] }>({
     ters: [],
     desvs: [],
     multas: [],
     fants: [],
+    bajas: [],
   });
 
   const [busqueda, setBusqueda] = useState('');
@@ -112,17 +128,18 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
   const cargar = useCallback(async () => {
     setError(null);
     try {
-      const [p, d, ters, desvs, multas, fants] = await Promise.all([
+      const [p, d, ters, desvs, multas, fants, bajas] = await Promise.all([
         leerTodo<Postulacion>('postulaciones', COLS_POST, 'postulado_at'),
         leerTodo<DecisionRow>('postulacion_decisiones', 'id,postulacion_id,decision,motivo,decidido_por,created_at'),
         leerTodo<Ter>('therapists', 'id,nombre,pais,email,activo,inicio,fecha_baja,motivo_baja'),
         leerTodo<DesvRow>('desvinculaciones', 'therapist_id,motivo,desvinculado_at,cancelada_at,nota,created_at'),
         leerTodo<MultaRow>('multas', 'therapist_id,saldo,moneda,anulada_el,pago_confirmado_el'),
         leerTodo<FantasmeoRow>('fantasmeos', 'therapist_id,desde,hasta,motivo'),
+        leerTodo<BajaHist>('bajas_historicas', 'id,fuente,pais,nombre,email,cuit,fecha,anio,quien,motivo'),
       ]);
       setPosts(p);
       setDecisiones(d);
-      setBase({ ters, desvs, multas, fants });
+      setBase({ ters, desvs, multas, fants, bajas });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cargar');
     } finally {
@@ -135,7 +152,7 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
   }, [cargar]);
 
   const cruces = useMemo(
-    () => cruzar(posts, decisiones, base.ters, base.desvs, base.multas, base.fants),
+    () => cruzar(posts, decisiones, base.ters, base.desvs, base.multas, base.fants, base.bajas),
     [posts, decisiones, base],
   );
 
@@ -324,6 +341,13 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
                           {c.fantasmeos > 0 && ` · ${c.fantasmeos} fantasmeo${c.fantasmeos > 1 ? 's' : ''}`}
                         </div>
                       </>
+                    ) : c.bajaHist ? (
+                      <>
+                        <div>
+                          {c.bajaHist.nombre} <span className="rc-sub">· por {c.bajaHistPor === 'cuit' ? 'CUIT/RUT' : c.bajaHistPor}</span>
+                        </div>
+                        <div className="rc-sub">{textoBajaHist(c.bajaHist)}</div>
+                      </>
                     ) : (
                       <span className="rc-sub">—</span>
                     )}
@@ -486,10 +510,36 @@ function Ficha({
                   </div>
                 )}
               </div>
+            ) : !c.bajaHist ? (
+              <div className="rc-sub">No aparece en la plataforma (ni por mail ni por nombre) ni en el historial de bajas.</div>
             ) : (
-              <div className="rc-sub">No aparece en la plataforma (ni por mail ni por nombre).</div>
+              <div className="rc-sub">No está en la plataforma desde abril 2026, pero sí en el historial de bajas (abajo).</div>
             )}
           </div>
+
+          {/* Bajas anteriores al dashboard (form de desvinculación desde 2024 y
+              planilla 2022-2023): sin esto, quien se fue antes no se ve. */}
+          {c.bajaHist && (
+            <div className="ms">
+              <div className="mst">Historial de bajas</div>
+              <div className={`rc-box ${c.bajaHist.quien === 'nuestra' ? 'rc-box-r' : ''}`}>
+                <div>
+                  <b>{c.bajaHist.nombre}</b>{' '}
+                  <span className="rc-sub">
+                    {c.bajaHist.pais ?? '—'} · coincide por {c.bajaHistPor === 'cuit' ? 'CUIT/RUT' : c.bajaHistPor}
+                    {c.bajaHist.email && c.bajaHist.email !== p.email.toLowerCase() && ` · con ${c.bajaHist.email}`}
+                  </span>
+                </div>
+                <div style={{ marginTop: 4 }}>{textoBajaHist(c.bajaHist)}</div>
+                {c.bajaHist.motivo && <div className="rc-sub" style={{ marginTop: 2 }}>{c.bajaHist.motivo}</div>}
+                {c.bajaHistPor === 'nombre' && (
+                  <div className="rc-sub" style={{ marginTop: 4 }}>
+                    Coincide solo el nombre: puede ser otra persona. Confirmalo antes de decidir.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {c.previas.length > 0 && (
             <div className="ms">
