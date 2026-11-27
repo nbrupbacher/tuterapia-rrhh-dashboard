@@ -86,6 +86,26 @@ export type BajaHist = {
 };
 
 /**
+ * Etapa en la planilla "Proceso y Contratos" (tabla `procesos`, espejo de la
+ * planilla). El orden es el del proceso; 'otro' es texto libre en el Status.
+ */
+export type Etapa = 'entrevista' | 'proximos_pasos' | 'ultimos_pasos' | 'contrato' | 'comienza' | 'no_avanza' | 'otro';
+export const ETAPAS: Etapa[] = ['entrevista', 'proximos_pasos', 'ultimos_pasos', 'contrato', 'comienza', 'no_avanza', 'otro'];
+
+export type ProcesoRow = {
+  id: string;
+  pais: 'AR' | 'UY';
+  fila: number;
+  mes: string | null;
+  nombre: string;
+  emails: string[];
+  recruiter: string | null;
+  estado: Etapa;
+  estado_texto: string | null;
+  fecha_ingreso: string | null;
+};
+
+/**
  * Historial, de lo más delicado a lo menos:
  * - baja_nuestra: lo desvinculamos nosotros. No avanza sin revisar por qué.
  * - activo: ya está atendiendo (¿segunda cuenta? ¿cambió de mail?).
@@ -112,6 +132,12 @@ export type Cruce = {
   // La persona de la plataforma entró DESPUÉS de esta postulación: es la
   // postulación con la que entró, no una que vuelve.
   entroDespues: boolean;
+  // Fila de "Proceso y Contratos" de esta persona: la última (la más abajo
+  // en la planilla) es la etapa actual. Por mail de cualquiera de sus
+  // postulaciones; si no, por nombre en el mismo país (hay que mirarlo).
+  proceso: ProcesoRow | null;
+  procesoPor: 'mail' | 'nombre' | null;
+  procesos: ProcesoRow[];
   // Postulaciones anteriores de la misma persona (mismo mail o mismo CUIT).
   previas: Postulacion[];
   // Última decisión vigente de alguna previa, para ver "ya dijimos que no".
@@ -178,7 +204,20 @@ export function cruzar(
   multas: MultaRow[],
   fantasmeos: FantasmeoRow[],
   bajasHist: BajaHist[] = [],
+  procesos: ProcesoRow[] = [],
 ): Map<string, Cruce> {
+  const procPorMail = new Map<string, ProcesoRow[]>();
+  const procPorNombre = new Map<string, ProcesoRow[]>();
+  const sumarProc = (m: Map<string, ProcesoRow[]>, k: string, r: ProcesoRow) => {
+    const l = m.get(k) ?? [];
+    if (!l.includes(r)) l.push(r);
+    m.set(k, l);
+  };
+  for (const r of procesos) {
+    for (const e of r.emails ?? []) sumarProc(procPorMail, e.toLowerCase(), r);
+    for (const k of clavesNombre(r.nombre)) sumarProc(procPorNombre, `${r.pais}|${k}`, r);
+  }
+
   const bajaPorMail = new Map<string, BajaHist[]>();
   const bajaPorCuit = new Map<string, BajaHist[]>();
   const bajaPorNombre = new Map<string, BajaHist[]>();
@@ -356,6 +395,21 @@ export function cruzar(
       }
     }
 
+    // Proceso: por mail de cualquier postulación de la persona; si no, por
+    // nombre en el mismo país. Ordenadas como en la planilla.
+    const porFila = (a: ProcesoRow, b: ProcesoRow) => (a.pais === b.pais ? a.fila - b.fila : a.pais < b.pais ? -1 : 1);
+    let procesoPor: Cruce['procesoPor'] = null;
+    const procMail = new Set<ProcesoRow>();
+    for (const q of [p, ...grupo]) for (const r of procPorMail.get(q.email.toLowerCase()) ?? []) procMail.add(r);
+    let procs = Array.from(procMail).sort(porFila);
+    if (procs.length) procesoPor = 'mail';
+    else if (p.pais === 'AR' || p.pais === 'UY') {
+      const cand = new Set<ProcesoRow>();
+      for (const k of clavesNombre(p.nombre)) for (const r of procPorNombre.get(`${p.pais}|${k}`) ?? []) cand.add(r);
+      procs = Array.from(cand).sort(porFila);
+      if (procs.length) procesoPor = 'nombre';
+    }
+
     const faltan = minimos(p);
     out.set(p.id, {
       historial,
@@ -369,6 +423,9 @@ export function cruzar(
       bajaHist,
       bajaHistPor,
       entroDespues,
+      proceso: procs.length ? procs[procs.length - 1] : null,
+      procesoPor,
+      procesos: procs,
       previas,
       decisionPrevia,
       decision: decPorPost.get(p.id) ?? null,
