@@ -17,6 +17,10 @@
  * historial de bajas (Reclutamiento las usa para reconocer a quien se fue y se
  * vuelve a postular). Las salidas en En vivo se arman solo con las de
  * noviembre 2026 en adelante; eso lo decide el dashboard.
+ *
+ * Las filas tachadas (Talent tacha las desvinculaciones que no se hicieron) se
+ * mandan marcadas: el dashboard no las cuenta como baja y, si ya estaban en el
+ * historial, las saca.
  */
 
 var API = 'https://tuterapia-rrhh-dashboard.vercel.app/api/talent/form-desvinculacion';
@@ -44,6 +48,7 @@ var TEXTO = {
   sin_psicologo: 'No se encontró al psicólogo/a: revisar el nombre',
   varios_psicologos: 'Hay más de un psicólogo/a con ese nombre: cargar a mano',
   anterior: 'Anterior a noviembre 2026: solo en el historial de bajas',
+  tachada: 'Tachada: no cuenta como baja',
   error: 'Error',
 };
 
@@ -107,7 +112,9 @@ function sincronizar() {
 
 function leerFilas() {
   var hoja = SpreadsheetApp.getActive().getSheetByName(HOJA_RESPUESTAS);
-  var datos = hoja.getDataRange().getValues();
+  var rango = hoja.getDataRange();
+  var datos = rango.getValues();
+  var lineas = rango.getFontLines();
   var titulos = datos[0].map(function (t) { return String(t).trim(); });
   var col = {};
   Object.keys(TITULOS).forEach(function (k) {
@@ -115,6 +122,9 @@ function leerFilas() {
     if (col[k] < 0) throw new Error('No encuentro la columna "' + TITULOS[k] + '…"');
   });
   var colCuit = titulos.findIndex(function (t) { return t.indexOf(TITULO_CUIT) === 0; });
+
+  // Tachada = el nombre, el mail o la marca temporal tachados.
+  var colsTachado = [col.marca, col.email, col.nombre];
 
   var filas = [];
   for (var i = 1; i < datos.length; i++) {
@@ -134,6 +144,7 @@ function leerFilas() {
       pedido: String(f[col.pedido]).trim(),
       motivo: String(f[col.motivo]).trim(),
       cuit: colCuit >= 0 ? String(f[colCuit]).trim() : '',
+      tachada: colsTachado.some(function (c) { return lineas[i][c] === 'line-through'; }),
     });
   }
   return filas;
