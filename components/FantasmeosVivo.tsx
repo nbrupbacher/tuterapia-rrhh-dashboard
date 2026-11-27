@@ -87,9 +87,10 @@ type Multa = {
   therapist_id: string;
   desvinculacion_id: string | null;
   moneda: Moneda;
-  monto: number;
+  /** null = multa registrada, monto todavía sin calcular (Talent, 2026-11-27). */
+  monto: number | null;
   retenido: number;
-  saldo: number;
+  saldo: number | null;
   notificada_el: string;
   vence_el: string | null;
   pago_informado_el: string | null;
@@ -156,13 +157,14 @@ const PLANILLA_DESV = 'https://docs.google.com/spreadsheets/d/1c-YTCv__2yIX96SkQ
 function estadoMulta(m: Multa, hoy: string): EstadoM {
   if (m.anulada_el) return 'anulada';
   if (m.pago_confirmado_el) return 'pagada';
-  if (Number(m.saldo) <= 0) return 'cubierta';
+  if (m.saldo != null && Number(m.saldo) <= 0) return 'cubierta';
   if (m.pago_informado_el) return 'pago_informado';
   if (m.vence_el && m.vence_el < hoy) return 'vencida';
   return 'notificada';
 }
 
-function plata(n: number, moneda: Moneda): string {
+function plata(n: number | null, moneda: Moneda): string {
+  if (n == null) return 'A calcular';
   return `${moneda} ${Number(n).toLocaleString('es-AR', { maximumFractionDigits: 2 })}`;
 }
 
@@ -882,7 +884,7 @@ function ModalFD({
   const [form, setForm] = useState(diaDe(d?.form_enviado_at ?? null) ?? '');
   const [nota, setNota] = useState(f?.nota ?? d?.nota ?? m?.nota ?? '');
   const [moneda, setMoneda] = useState<Moneda>(m?.moneda ?? (presetId && paisDe(presetId) === 'UY' ? 'UYU' : 'ARS'));
-  const [monto, setMonto] = useState(m ? String(m.monto) : '');
+  const [monto, setMonto] = useState(m?.monto != null ? String(m.monto) : '');
   const [retenido, setRetenido] = useState(m && Number(m.retenido) > 0 ? String(m.retenido) : '');
   const [notificada, setNotificada] = useState(m?.notificada_el ?? hoy);
   const [vence, setVence] = useState(m?.vence_el ?? '');
@@ -913,10 +915,12 @@ function ModalFD({
     if (!elegido) return;
     setErrLocal(null);
     if (modal.tipo === 'nuevaM' || modal.tipo === 'editM') {
-      const montoN = Number(monto);
-      const retN = retenido ? Number(retenido) : 0;
-      if (!(montoN > 0)) return setErrLocal('Falta el monto de la multa.');
-      if (!(retN >= 0) || retN > montoN) return setErrLocal('Lo retenido tiene que estar entre 0 y el monto de la multa.');
+      // Los montos son opcionales: se puede registrar la multa y calcularlos después.
+      const montoN = monto.trim() ? Number(monto) : null;
+      const retN = retenido.trim() ? Number(retenido) : 0;
+      if (montoN != null && !(montoN > 0)) return setErrLocal('El monto de la multa tiene que ser mayor a 0, o dejalo vacío.');
+      if (!(retN >= 0)) return setErrLocal('Lo retenido no puede ser negativo.');
+      if (montoN != null && retN > montoN) return setErrLocal('Lo retenido no puede ser más que el monto de la multa.');
       if (!notificada) return setErrLocal('Falta la fecha del mail.');
       const fila = {
         moneda,
@@ -1038,11 +1042,11 @@ function ModalFD({
                     </select>
                   </div>
                   <div style={{ flex: 1 }}>
-                    <label className="fd-lb">Multa</label>
-                    <input className="fd-in" type="number" min="0" step="any" placeholder="200000" value={monto} onChange={(e) => setMonto(e.target.value)} />
+                    <label className="fd-lb">Multa (opcional)</label>
+                    <input className="fd-in" type="number" min="0" step="any" placeholder="A calcular" value={monto} onChange={(e) => setMonto(e.target.value)} />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <label className="fd-lb">Honorarios retenidos</label>
+                    <label className="fd-lb">Honorarios retenidos (opcional)</label>
                     <input className="fd-in" type="number" min="0" step="any" placeholder="0" value={retenido} onChange={(e) => setRetenido(e.target.value)} />
                   </div>
                 </div>
