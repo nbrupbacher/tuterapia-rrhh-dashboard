@@ -91,7 +91,8 @@ type Multa = {
   monto: number | null;
   retenido: number;
   saldo: number | null;
-  notificada_el: string;
+  /** null = el mail todavía no se mandó o no se cargó la fecha. */
+  notificada_el: string | null;
   vence_el: string | null;
   pago_informado_el: string | null;
   pago_confirmado_el: string | null;
@@ -100,7 +101,7 @@ type Multa = {
   mail_url: string | null;
   nota: string | null;
 };
-type EstadoM = 'vencida' | 'notificada' | 'pago_informado' | 'pagada' | 'cubierta' | 'anulada';
+type EstadoM = 'vencida' | 'notificada' | 'sin_notificar' | 'pago_informado' | 'pagada' | 'cubierta' | 'anulada';
 
 type Modal =
   | { tipo: 'nuevoF'; therapistId?: string }
@@ -140,12 +141,13 @@ const EN_CURSO: EstadoD[] = ['falta_desactivar', 'lista_para_desvincular', 'espe
 const ESTADO_M: Record<EstadoM, { txt: string; color: string }> = {
   vencida: { txt: 'Vencida sin pagar', color: 'var(--r)' },
   notificada: { txt: 'Notificada', color: 'var(--ac)' },
+  sin_notificar: { txt: 'Sin notificar (faltan datos)', color: 'var(--t2)' },
   pago_informado: { txt: 'Pago informado (falta confirmar)', color: 'var(--am)' },
   pagada: { txt: 'Pagada', color: 'var(--v)' },
   cubierta: { txt: 'Cubierta con lo retenido', color: 'var(--v)' },
   anulada: { txt: 'Anulada', color: 'var(--t3)' },
 };
-const M_ABIERTAS: EstadoM[] = ['vencida', 'notificada', 'pago_informado'];
+const M_ABIERTAS: EstadoM[] = ['vencida', 'notificada', 'sin_notificar', 'pago_informado'];
 
 const MONEDAS: Moneda[] = ['ARS', 'UYU', 'USD'];
 
@@ -159,6 +161,7 @@ function estadoMulta(m: Multa, hoy: string): EstadoM {
   if (m.pago_confirmado_el) return 'pagada';
   if (m.saldo != null && Number(m.saldo) <= 0) return 'cubierta';
   if (m.pago_informado_el) return 'pago_informado';
+  if (!m.notificada_el) return 'sin_notificar';
   if (m.vence_el && m.vence_el < hoy) return 'vencida';
   return 'notificada';
 }
@@ -377,7 +380,7 @@ export function FantasmeosVivo({
     return multas
       .filter((m) => pasa(m.therapist_id, nombreDe(m.therapist_id), paisDe(m.therapist_id)))
       .map((m) => ({ m, estado: estadoMulta(m, hoy) }))
-      .sort((a, b) => orden(a.estado) - orden(b.estado) || b.m.notificada_el.localeCompare(a.m.notificada_el));
+      .sort((a, b) => orden(a.estado) - orden(b.estado) || (b.m.notificada_el ?? '').localeCompare(a.m.notificada_el ?? ''));
   }, [multas, pasa, nombreDe, paisDe, hoy]);
   const multasPorCobrar = multasPais.filter((x) => M_ABIERTAS.includes(x.estado));
   const multasVisibles = verTodasM ? multasPais : multasPorCobrar;
@@ -886,7 +889,7 @@ function ModalFD({
   const [moneda, setMoneda] = useState<Moneda>(m?.moneda ?? (presetId && paisDe(presetId) === 'UY' ? 'UYU' : 'ARS'));
   const [monto, setMonto] = useState(m?.monto != null ? String(m.monto) : '');
   const [retenido, setRetenido] = useState(m && Number(m.retenido) > 0 ? String(m.retenido) : '');
-  const [notificada, setNotificada] = useState(m?.notificada_el ?? hoy);
+  const [notificada, setNotificada] = useState(m?.notificada_el ?? '');
   const [vence, setVence] = useState(m?.vence_el ?? '');
   const [mailUrl, setMailUrl] = useState(m?.mail_url ?? '');
   const [informado, setInformado] = useState(m?.pago_informado_el ?? '');
@@ -921,13 +924,12 @@ function ModalFD({
       if (montoN != null && !(montoN > 0)) return setErrLocal('El monto de la multa tiene que ser mayor a 0, o dejalo vacío.');
       if (!(retN >= 0)) return setErrLocal('Lo retenido no puede ser negativo.');
       if (montoN != null && retN > montoN) return setErrLocal('Lo retenido no puede ser más que el monto de la multa.');
-      if (!notificada) return setErrLocal('Falta la fecha del mail.');
       const fila = {
         moneda,
         monto: montoN,
         retenido: retN,
-        notificada_el: notificada,
-        vence_el: vence || sumarHabiles(notificada, 10),
+        notificada_el: notificada || null,
+        vence_el: vence || (notificada ? sumarHabiles(notificada, 10) : null),
         pago_informado_el: informado || null,
         pago_confirmado_el: confirmado || null,
         ...(confirmado && !m?.pago_confirmado_el ? { pago_confirmado_por: email } : {}),
@@ -1057,7 +1059,7 @@ function ModalFD({
                 )}
                 <div style={{ display: 'flex', gap: 8 }}>
                   <div style={{ flex: 1 }}>
-                    <label className="fd-lb">Mail enviado el</label>
+                    <label className="fd-lb">Mail enviado el (opcional)</label>
                     <input className="fd-in" type="date" value={notificada} onChange={(e) => setNotificada(e.target.value)} />
                   </div>
                   <div style={{ flex: 1 }}>
@@ -1069,11 +1071,11 @@ function ModalFD({
                 <input className="fd-in" placeholder="https://mail.google.com/…" value={mailUrl} onChange={(e) => setMailUrl(e.target.value)} />
                 <div style={{ display: 'flex', gap: 8 }}>
                   <div style={{ flex: 1 }}>
-                    <label className="fd-lb">Informó el pago el</label>
+                    <label className="fd-lb">Informó el pago el (opcional)</label>
                     <input className="fd-in" type="date" value={informado} onChange={(e) => setInformado(e.target.value)} />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <label className="fd-lb">Administración confirmó el</label>
+                    <label className="fd-lb">Administración confirmó el (opcional)</label>
                     <input className="fd-in" type="date" value={confirmado} onChange={(e) => setConfirmado(e.target.value)} />
                   </div>
                 </div>
