@@ -17,11 +17,19 @@
  * El dashboard no duplica: mandar la misma fila dos veces no pasa nada. La
  * primera vez, "Mandar todo" carga el histórico.
  *
- * No escribe en la pestaña de respuestas: las otras automatizaciones la usan.
  * Lo que pasó con cada envío queda en la pestaña "Dashboard RRHH".
+ *
+ * Decisión (columna ESTADO: APTO, NO CUMPLE, REVISAR), en los dos sentidos:
+ * - planilla → Matrix: al editar ESTADO se manda esa fila, y cada hora se
+ *   manda ESTADO de toda la planilla (por si algo se perdió).
+ * - Matrix → planilla: cada 5 minutos pregunta qué se decidió en la solapa
+ *   Reclutamiento y lo escribe en ESTADO. Es lo ÚNICO que escribe en la
+ *   pestaña de respuestas, y solo en esa columna.
+ * Una vez: correr postActivarDecisiones desde el editor.
  */
 
 var POST_API = 'https://tuterapia-rrhh-dashboard.vercel.app/api/talent/postulaciones';
+var POST_API_DECISIONES = POST_API + '/decisiones';
 var POST_HOJA_RESPUESTAS = 'Respuestas de formulario 1';
 var POST_HOJA_ESTADO = 'Dashboard RRHH';
 var POST_ZONA = 'America/Montevideo';
@@ -115,7 +123,118 @@ function postPedirPermisos() {
 function postSincronizar() {
   var desde = new Date();
   desde.setDate(desde.getDate() - POST_DIAS_ATRAS);
-  return postEnviar(desde);
+  var r = postEnviar(desde);
+  try {
+    postMandarEstados(null);
+  } catch (err) {
+    r += ' · ESTADO: ' + err.message;
+  }
+  return r;
+}
+
+// ===== Decisión: columna ESTADO =====
+
+function postActivarDecisiones() {
+  postPedirPermisos();
+  var ss = SpreadsheetApp.getActive();
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    var f = t.getHandlerFunction();
+    if (f === 'postAlEditar' || f === 'postEscribirDecisiones') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('postAlEditar').forSpreadsheet(ss).onEdit().create();
+  ScriptApp.newTrigger('postEscribirDecisiones').timeBased().everyMinutes(5).create();
+  Logger.log('ESTADO mandado: ' + JSON.stringify(postMandarEstados(null)));
+  Logger.log(postEscribirDecisiones());
+}
+
+/** Alguien editó la planilla: si tocó ESTADO, se manda esa(s) fila(s). */
+function postAlEditar(e) {
+  if (!e || !e.range) return;
+  var hoja = e.range.getSheet();
+  if (hoja.getName() !== POST_HOJA_RESPUESTAS) return;
+  var titulos = hoja.getRange(1, 1, 1, hoja.getLastColumn()).getValues()[0].map(function (t) { return String(t).trim(); });
+  var colEstado = titulos.indexOf(POST_OPCIONALES.estado) + 1;
+  if (colEstado < 1 || e.range.getColumn() > colEstado || e.range.getLastColumn() < colEstado) return;
+  var filas = [];
+  for (var r = e.range.getRow(); r <= e.range.getLastRow(); r++) if (r > 1) filas.push(r);
+  if (filas.length) postMandarEstados(filas);
+}
+
+/** Clave (marca + mail) y ESTADO de las filas pedidas, o de todas (null). */
+function postLeerEstados(filasPedidas) {
+  var hoja = SpreadsheetApp.getActive().getSheetByName(POST_HOJA_RESPUESTAS);
+  var datos = hoja.getDataRange().getValues();
+  var titulos = datos[0].map(function (t) { return String(t).trim(); });
+  var buscar = function (prefijo) {
+    return titulos.findIndex(function (t) { return t.indexOf(prefijo) === 0; });
+  };
+  var cMarca = buscar(POST_OBLIGATORIAS.marca);
+  var cEmail = buscar(POST_OBLIGATORIAS.email);
+  var cEstado = buscar(POST_OPCIONALES.estado);
+  if (cMarca < 0 || cEmail < 0 || cEstado < 0) throw new Error('No encuentro Marca temporal, mail o ESTADO');
+  var out = [];
+  var indices = filasPedidas ? filasPedidas.map(function (r) { return r - 1; }) : datos.map(function (_, i) { return i; }).slice(1);
+  indices.forEach(function (i) {
+    var f = datos[i];
+    if (!f || !(f[cMarca] instanceof Date)) return;
+    var email = String(f[cEmail]).trim().toLowerCase();
+    if (!email) return;
+    out.push({
+      fila: i + 1,
+      clave: Utilities.formatDate(f[cMarca], POST_ZONA, 'yyyy-MM-dd HH:mm:ss') + '|' + email,
+      estado: String(f[cEstado]).trim(),
+    });
+  });
+  return { hoja: hoja, colEstado: cEstado + 1, filas: out };
+}
+
+function postMandarEstados(filasPedidas) {
+  var leido = postLeerEstados(filasPedidas);
+  var estados = leido.filas.map(function (f) { return { clave: f.clave, estado: f.estado }; });
+  if (!estados.length) return { estados_cambiados: 0 };
+  return postLlamar({ filas: [], estados: estados });
+}
+
+/** Matrix → planilla: escribe en ESTADO lo que se decidió en la Matrix. */
+function postEscribirDecisiones() {
+  var lock = LockService.getDocumentLock();
+  if (!lock.tryLock(30000)) return 'Ya hay una escritura corriendo.';
+  try {
+    var r = UrlFetchApp.fetch(POST_API_DECISIONES, {
+      method: 'get',
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true,
+    });
+    var json = {};
+    try { json = JSON.parse(r.getContentText()); } catch (e) {}
+    if (r.getResponseCode() >= 300) throw new Error(json.error || ('HTTP ' + r.getResponseCode()));
+    var pendientes = json.pendientes || [];
+    if (!pendientes.length) return 'No hay decisiones para escribir.';
+
+    var leido = postLeerEstados(null);
+    var filaPorClave = {};
+    leido.filas.forEach(function (f) { filaPorClave[f.clave] = f.fila; });
+    var escritas = [];
+    pendientes.forEach(function (p) {
+      var fila = filaPorClave[p.clave];
+      if (!fila) return; // no está en la planilla (¿la borraron?): queda pendiente
+      leido.hoja.getRange(fila, leido.colEstado).setValue(p.estado);
+      escritas.push(p.id);
+    });
+    if (escritas.length) {
+      var a = UrlFetchApp.fetch(POST_API_DECISIONES, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ ids: escritas }),
+        headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+        muteHttpExceptions: true,
+      });
+      if (a.getResponseCode() >= 300) throw new Error('No se pudo avisar que se escribieron: HTTP ' + a.getResponseCode());
+    }
+    return 'Escritas en ESTADO: ' + escritas.length + ' de ' + pendientes.length;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** desde = null manda todo. */
