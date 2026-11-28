@@ -60,16 +60,36 @@ type Periodo = '30' | '90' | '365' | 'T';
 // "Cumplen mínimos" seguía filtrando "Sin decidir", "Repiten" no hacía nada, y
 // como no quedaba marcada ni bajaba a la tabla, parecía que no andaban.
 const TEXTO_PERIODO: Record<Periodo, string> = { '30': 'últimos 30 días', '90': 'últimos 90 días', '365': 'último año', T: 'desde siempre' };
-type Vista = 'todas' | 'sin_decidir' | 'minimos' | 'ya_estuvo' | 'nuestra' | 'repiten';
-type Filtros = { hist: FiltroHist; dec: FiltroDec; soloMinimos: boolean; soloRepiten: boolean };
+// La segunda fila son las etapas de "Proceso y Contratos": a quién hay que
+// mover hoy, sin abrir la planilla.
+type Vista =
+  | 'todas'
+  | 'sin_decidir'
+  | 'minimos'
+  | 'ya_estuvo'
+  | 'nuestra'
+  | 'repiten'
+  | 'en_proceso'
+  | 'entrevista'
+  | 'proximos_pasos'
+  | 'ultimos_pasos'
+  | 'contrato';
+type Filtros = { hist: FiltroHist; dec: FiltroDec; soloMinimos: boolean; soloRepiten: boolean; etapa: FiltroEtapa };
+const SIN_FILTRO: Filtros = { hist: 'T', dec: 'T', soloMinimos: false, soloRepiten: false, etapa: 'T' };
 const VISTAS: Record<Vista, { titulo: string; filtros: Filtros }> = {
-  todas: { titulo: 'Todas las postulaciones', filtros: { hist: 'T', dec: 'T', soloMinimos: false, soloRepiten: false } },
-  sin_decidir: { titulo: 'Sin decidir', filtros: { hist: 'T', dec: 'sin_decidir', soloMinimos: false, soloRepiten: false } },
-  minimos: { titulo: 'Cumplen los mínimos', filtros: { hist: 'T', dec: 'T', soloMinimos: true, soloRepiten: false } },
-  ya_estuvo: { titulo: 'Ya estuvieron en Tu Terapia', filtros: { hist: 'ya_estuvo', dec: 'T', soloMinimos: false, soloRepiten: false } },
-  nuestra: { titulo: 'Baja nuestra', filtros: { hist: 'baja_nuestra', dec: 'T', soloMinimos: false, soloRepiten: false } },
-  repiten: { titulo: 'Se postularon más de una vez', filtros: { hist: 'T', dec: 'T', soloMinimos: false, soloRepiten: true } },
+  todas: { titulo: 'Todas las postulaciones', filtros: SIN_FILTRO },
+  sin_decidir: { titulo: 'Sin decidir', filtros: { ...SIN_FILTRO, dec: 'sin_decidir' } },
+  minimos: { titulo: 'Cumplen los mínimos', filtros: { ...SIN_FILTRO, soloMinimos: true } },
+  ya_estuvo: { titulo: 'Ya estuvieron en Tu Terapia', filtros: { ...SIN_FILTRO, hist: 'ya_estuvo' } },
+  nuestra: { titulo: 'Baja nuestra', filtros: { ...SIN_FILTRO, hist: 'baja_nuestra' } },
+  repiten: { titulo: 'Se postularon más de una vez', filtros: { ...SIN_FILTRO, soloRepiten: true } },
+  en_proceso: { titulo: 'En proceso (de entrevista a contrato)', filtros: { ...SIN_FILTRO, etapa: 'en_proceso' } },
+  entrevista: { titulo: 'En entrevista', filtros: { ...SIN_FILTRO, etapa: 'entrevista' } },
+  proximos_pasos: { titulo: 'Próximos pasos: esperando el situacional', filtros: { ...SIN_FILTRO, etapa: 'proximos_pasos' } },
+  ultimos_pasos: { titulo: 'Últimos pasos: esperando los formularios de perfil', filtros: { ...SIN_FILTRO, etapa: 'ultimos_pasos' } },
+  contrato: { titulo: 'Contrato enviado, falta que empiece', filtros: { ...SIN_FILTRO, etapa: 'contrato' } },
 };
+type Tarjeta = [Vista, number, string, string | undefined, string | undefined];
 
 const PREGUNTAS: [string, string][] = [
   ['disponibilidad', 'Días y horas disponibles'],
@@ -180,7 +200,7 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
 
   const vistaActual = (Object.keys(VISTAS) as Vista[]).find((v) => {
     const f = VISTAS[v].filtros;
-    return f.hist === hist && f.dec === dec && f.soloMinimos === soloMinimos && f.soloRepiten === soloRepiten && etapa === 'T';
+    return f.hist === hist && f.dec === dec && f.soloMinimos === soloMinimos && f.soloRepiten === soloRepiten && f.etapa === etapa;
   });
   const abrirVista = (v: Vista) => {
     const f = VISTAS[v].filtros;
@@ -188,7 +208,7 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
     setDec(f.dec);
     setSoloMinimos(f.soloMinimos);
     setSoloRepiten(f.soloRepiten);
-    setEtapa('T');
+    setEtapa(f.etapa);
     setMostrar(MOSTRAR);
     // Después del render, para que baje a la lista ya filtrada.
     setTimeout(() => listaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
@@ -262,15 +282,30 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
       nuestra = 0,
       minimos = 0,
       repiten = 0;
+    const etapas: Record<string, number> = {};
     for (const p of enPeriodo) {
       const c = cruces.get(p.id)!;
+      if (c.proceso) etapas[c.proceso.estado] = (etapas[c.proceso.estado] ?? 0) + 1;
       if (!c.decision) sinDecidir++;
       if (c.historial !== 'nuevo') yaEstuvo++;
       if (c.historial === 'baja_nuestra') nuestra++;
       if (c.cumpleMinimos) minimos++;
       if (c.previas.length) repiten++;
     }
-    return { total: enPeriodo.length, sinDecidir, yaEstuvo, nuestra, minimos, repiten };
+    const n = (e: string) => etapas[e] ?? 0;
+    return {
+      total: enPeriodo.length,
+      sinDecidir,
+      yaEstuvo,
+      nuestra,
+      minimos,
+      repiten,
+      entrevista: n('entrevista'),
+      proximos: n('proximos_pasos'),
+      ultimos: n('ultimos_pasos'),
+      contrato: n('contrato'),
+      enProceso: n('entrevista') + n('proximos_pasos') + n('ultimos_pasos') + n('contrato'),
+    };
   }, [enPeriodo, cruces]);
 
   const filas = useMemo(() => {
@@ -307,36 +342,56 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
         </div>
       )}
 
-      <div className="ks" style={{ marginTop: 8 }}>
-        {(
+      {(
+        [
           [
-            ['todas', kpis.total, 'Postulaciones', undefined, undefined],
-            ['sin_decidir', kpis.sinDecidir, 'Sin decidir', 'var(--ac)', undefined],
-            ['minimos', kpis.minimos, 'Cumplen mínimos', 'var(--v)', undefined],
-            ['ya_estuvo', kpis.yaEstuvo, 'Ya estuvieron', 'var(--am)', undefined],
-            ['nuestra', kpis.nuestra, 'Baja nuestra', 'var(--r)', undefined],
-            ['repiten', kpis.repiten, 'Repiten', undefined, 'Se postularon más de una vez (mismo mail o mismo CUIT/RUT)'],
-          ] as [Vista, number, string, string | undefined, string | undefined][]
-        ).map(([v, n, label, color, title]) => (
-          <div
-            key={v}
-            className={`k${vistaActual === v ? ' rc-on' : ''}`}
-            role="button"
-            tabIndex={0}
-            title={title ?? `Ver la lista: ${VISTAS[v].titulo}`}
-            onClick={() => abrirVista(v)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                abrirVista(v);
-              }
-            }}
-          >
-            <div className="kv" style={color ? { color } : undefined}>{n}</div>
-            <div className="kl">{label}</div>
+            null,
+            [
+              ['todas', kpis.total, 'Postulaciones', undefined, undefined],
+              ['sin_decidir', kpis.sinDecidir, 'Sin decidir', 'var(--ac)', undefined],
+              ['minimos', kpis.minimos, 'Cumplen mínimos', 'var(--v)', undefined],
+              ['ya_estuvo', kpis.yaEstuvo, 'Ya estuvieron', 'var(--am)', undefined],
+              ['nuestra', kpis.nuestra, 'Baja nuestra', 'var(--r)', undefined],
+              ['repiten', kpis.repiten, 'Repiten', undefined, 'Se postularon más de una vez (mismo mail o mismo CUIT/RUT)'],
+            ],
+          ],
+          [
+            'Proceso y Contratos',
+            [
+              ['en_proceso', kpis.enProceso, 'En proceso', 'var(--ac)', 'De entrevista a contrato: a quién hay que mover'],
+              ['entrevista', kpis.entrevista, 'Entrevista', undefined, 'Agendaron entrevista. Después: Próximos pasos o No avanza'],
+              ['proximos_pasos', kpis.proximos, 'Esperan situacional', undefined, 'Se les mandó el formulario situacional. Al revisarlo: Avanza en la planilla del situacional'],
+              ['ultimos_pasos', kpis.ultimos, 'Últimos pasos', undefined, 'Se les mandaron los formularios de perfil y especialidades. Al revisarlo: Avanza en Especializaciones'],
+              ['contrato', kpis.contrato, 'Contrato enviado', 'var(--am)', 'Falta la firma y el alta. Al empezar: Comienza la experiencia'],
+            ],
+          ],
+        ] as [string | null, Tarjeta[]][]
+      ).map(([titulo, tarjetas], i) => (
+        <div key={i} style={{ marginTop: 8 }}>
+          {titulo && <div className="ks-lbl">{titulo}</div>}
+          <div className="ks">
+            {tarjetas.map(([v, n, label, color, title]) => (
+              <div
+                key={v}
+                className={`k${vistaActual === v ? ' rc-on' : ''}`}
+                role="button"
+                tabIndex={0}
+                title={title ?? `Ver la lista: ${VISTAS[v].titulo}`}
+                onClick={() => abrirVista(v)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    abrirVista(v);
+                  }
+                }}
+              >
+                <div className="kv" style={color ? { color } : undefined}>{n}</div>
+                <div className="kl">{label}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
 
       <div className="ctr">
         <div className="sw">
