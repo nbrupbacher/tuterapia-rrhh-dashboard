@@ -38,6 +38,9 @@ export type Postulacion = {
   supervision: string | null;
   diez_horas: string | null;
   estado_planilla: string | null;
+  // Cuándo vio el dashboard el último cambio de ESTADO (null: nunca cambió
+  // desde que entró la respuesta).
+  estado_planilla_at: string | null;
 };
 
 export type DecisionRow = {
@@ -47,7 +50,41 @@ export type DecisionRow = {
   motivo: string;
   decidido_por: string;
   created_at: string;
+  // Cuándo la escribió el Apps Script en ESTADO de la planilla. Null: pendiente.
+  // Las que vienen de la planilla (id 'planilla:…') no tienen.
+  planilla_escrita_at?: string | null;
 };
+
+/**
+ * ESTADO de la planilla de Requisitos ↔ decisión. Es donde Talent decide hoy;
+ * lo que se decide en la Matrix se escribe ahí (app/api/talent/postulaciones/
+ * decisiones), así hay un solo lugar.
+ */
+export function decisionDeEstado(estado: string | null | undefined): Decision | null {
+  const e = normalizar(estado);
+  if (e === 'apto') return 'avanza';
+  if (e === 'no cumple') return 'no_avanza';
+  if (e === 'revisar') return 'en_espera';
+  return null;
+}
+
+/**
+ * Decisión vigente: la más nueva entre la última cargada en la Matrix y ESTADO
+ * de la planilla. Si dicen lo mismo, la de la Matrix (tiene el motivo).
+ */
+export function decisionVigente(p: Postulacion, matrix: DecisionRow | null): DecisionRow | null {
+  const deEstado = decisionDeEstado(p.estado_planilla);
+  if (!deEstado) return matrix;
+  if (matrix && (matrix.decision === deEstado || !p.estado_planilla_at || matrix.created_at >= p.estado_planilla_at)) return matrix;
+  return {
+    id: `planilla:${p.id}`,
+    postulacion_id: p.id,
+    decision: deEstado,
+    motivo: `ESTADO en la planilla de Requisitos: ${String(p.estado_planilla).trim().toUpperCase()}`,
+    decidido_por: 'planilla',
+    created_at: p.estado_planilla_at ?? p.postulado_at,
+  };
+}
 
 export type Ter = {
   id: string;
@@ -305,7 +342,7 @@ export function cruzar(
       .sort((a, b) => (a.postulado_at < b.postulado_at ? 1 : -1));
     let decisionPrevia: DecisionRow | null = null;
     for (const q of previas) {
-      const d = decPorPost.get(q.id);
+      const d = decisionVigente(q, decPorPost.get(q.id) ?? null);
       if (d) {
         decisionPrevia = d;
         break;
@@ -428,7 +465,7 @@ export function cruzar(
       procesos: procs,
       previas,
       decisionPrevia,
-      decision: decPorPost.get(p.id) ?? null,
+      decision: decisionVigente(p, decPorPost.get(p.id) ?? null),
       cumpleMinimos: faltan.length === 0,
       minimosQueFaltan: faltan,
     });

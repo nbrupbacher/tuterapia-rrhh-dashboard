@@ -13,7 +13,13 @@ export const maxDuration = 60;
  * Un Apps Script en la planilla de respuestas (apps-script/postulaciones) manda
  * las filas cada vez que entra una respuesta y una vez por hora, en tandas.
  * Se puede mandar la misma fila muchas veces: `clave` (marca temporal + mail)
- * evita duplicar. Lo que ya se cargó no se pisa.
+ * evita duplicar. Lo que ya se cargó no se pisa, salvo ESTADO.
+ *
+ * ESTADO (columna B: APTO, NO CUMPLE, REVISAR) es la decisión de Talent y se
+ * cambia después de que entra la respuesta: si cambió, se actualiza y se anota
+ * cuándo (`estado_planilla_at`). Además de las filas completas, el script
+ * manda `estados` (solo clave + ESTADO) de toda la planilla cada hora y al
+ * editar la columna, para que un cambio en una fila vieja también llegue.
  *
  * Acá solo se guarda la respuesta. El cruce con quienes ya estuvieron en la
  * plataforma se arma al leer (components/ReclutamientoView.tsx), para que esté
@@ -39,6 +45,7 @@ type Fila = {
 };
 
 type Resultado = 'nueva' | 'ya_estaba' | 'error';
+type Estado = { clave: string; estado: string };
 
 function admin() {
   // Adentro del handler: CI compila sin la service key.
@@ -71,9 +78,11 @@ export async function POST(request: Request) {
   if (typeof email !== 'string') return email;
 
   let filas: Fila[];
+  let estados: Estado[];
   try {
     const body = await request.json();
     filas = Array.isArray(body?.filas) ? (body.filas as Fila[]).slice(0, MAX_FILAS) : [];
+    estados = Array.isArray(body?.estados) ? (body.estados as Estado[]).slice(0, 10_000) : [];
   } catch {
     return errorJson('JSON inválido', 400);
   }
@@ -138,12 +147,45 @@ export async function POST(request: Request) {
       }
     }
 
+    // ESTADO de las que ya estaban (de las filas completas y de `estados`).
+    const estadoPorClave = new Map<string, string | null>();
+    for (const n of nuevas) {
+      const clave = n.clave as string;
+      if (resultados[clave]?.resultado === 'ya_estaba') estadoPorClave.set(clave, (n.estado_planilla as string | null) ?? null);
+    }
+    for (const e of estados) {
+      const clave = String(e?.clave ?? '').trim();
+      if (clave) estadoPorClave.set(clave, texto(e.estado, 200));
+    }
+    const estadosCambiados = await actualizarEstados(sb, estadoPorClave);
+
     const resumen: Record<string, number> = {};
     for (const r of Object.values(resultados)) resumen[r.resultado] = (resumen[r.resultado] ?? 0) + 1;
-    console.log('[talent/postulaciones]', email, resumen);
-    return NextResponse.json({ resultados, resumen });
+    console.log('[talent/postulaciones]', email, resumen, 'estados cambiados', estadosCambiados);
+    return NextResponse.json({ resultados, resumen, estados_cambiados: estadosCambiados });
   } catch (e) {
     console.error('[talent/postulaciones] falló', e);
     return errorJson(e instanceof Error ? e.message : 'error desconocido', 500);
   }
+}
+
+/** Actualiza ESTADO donde cambió. Devuelve cuántas cambiaron. */
+async function actualizarEstados(sb: ReturnType<typeof admin>, porClave: Map<string, string | null>): Promise<number> {
+  if (!porClave.size) return 0;
+  const claves = Array.from(porClave.keys());
+  const actuales = new Map<string, string | null>();
+  for (let i = 0; i < claves.length; i += 500) {
+    const { data, error: e } = await sb.from('postulaciones').select('clave,estado_planilla').in('clave', claves.slice(i, i + 500));
+    if (e) throw new Error(e.message);
+    for (const r of (data ?? []) as { clave: string; estado_planilla: string | null }[]) actuales.set(r.clave, r.estado_planilla);
+  }
+  const ahora = new Date().toISOString();
+  let cambiadas = 0;
+  for (const [clave, estado] of Array.from(porClave.entries())) {
+    if (!actuales.has(clave) || (actuales.get(clave) ?? null) === estado) continue;
+    const { error: e } = await sb.from('postulaciones').update({ estado_planilla: estado, estado_planilla_at: ahora }).eq('clave', clave);
+    if (e) throw new Error(e.message);
+    cambiadas++;
+  }
+  return cambiadas;
 }
