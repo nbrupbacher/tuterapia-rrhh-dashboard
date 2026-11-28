@@ -48,7 +48,7 @@ const MOSTRAR = 200;
 const MIN_MOTIVO = 10;
 
 const COLS_POST =
-  'id,postulado_at,pais,pais_texto,nombre,email,cuit,titulo,proceso_personal,experiencia_clinica,supervision,diez_horas,estado_planilla';
+  'id,postulado_at,pais,pais_texto,nombre,email,cuit,titulo,proceso_personal,experiencia_clinica,supervision,diez_horas,estado_planilla,estado_planilla_at';
 
 type FiltroHist = 'T' | 'ya_estuvo' | Historial;
 type FiltroDec = 'T' | 'sin_decidir' | Decision;
@@ -219,7 +219,7 @@ export function ReclutamientoView({ pais, userEmail }: { pais: PaisFilter; userE
     try {
       const [p, d, ters, desvs, multas, fants, bajas, procs] = await Promise.all([
         leerTodo<Postulacion>('postulaciones', COLS_POST, 'postulado_at'),
-        leerTodo<DecisionRow>('postulacion_decisiones', 'id,postulacion_id,decision,motivo,decidido_por,created_at'),
+        leerTodo<DecisionRow>('postulacion_decisiones', 'id,postulacion_id,decision,motivo,decidido_por,created_at,planilla_escrita_at'),
         leerTodo<Ter>('therapists', 'id,nombre,pais,email,activo,inicio,fecha_baja,motivo_baja'),
         leerTodo<DesvRow>('desvinculaciones', 'therapist_id,motivo,desvinculado_at,cancelada_at,nota,created_at'),
         leerTodo<MultaRow>('multas', 'therapist_id,saldo,moneda,anulada_el,pago_confirmado_el'),
@@ -635,7 +635,7 @@ function Ficha({
     const { data, error: e } = await getSupabase()
       .from('postulacion_decisiones')
       .insert({ postulacion_id: p.id, decision, motivo: motivo.trim(), decidido_por: userEmail })
-      .select('id,postulacion_id,decision,motivo,decidido_por,created_at')
+      .select('id,postulacion_id,decision,motivo,decidido_por,created_at,planilla_escrita_at')
       .single();
     setGuardando(false);
     if (e) {
@@ -646,7 +646,10 @@ function Ficha({
     setMotivo('');
   }
 
-  const historialDec = decisiones.slice().sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  // La de la planilla (ESTADO) no es una fila de decisiones: se suma si es la vigente.
+  const historialDec = [...decisiones, ...(c.decision?.decidido_por === 'planilla' ? [c.decision] : [])].sort((a, b) =>
+    a.created_at < b.created_at ? 1 : -1,
+  );
   const motivoOk = motivo.trim().length >= MIN_MOTIVO;
   // Si lo desvinculamos nosotros, que avance tiene que estar muy justificado.
   const avisoNuestra = c.historial === 'baja_nuestra';
@@ -845,8 +848,11 @@ function Ficha({
               <div key={d.id} className="rc-resp">
                 <span className={`rc-dec rc-dec-${d.decision}`}>{TEXTO_DECISION[d.decision]}</span>{' '}
                 <span className="rc-sub">
-                  {fecha(d.created_at)} · {d.decidido_por}
+                  {d.decidido_por === 'planilla' ? 'en la planilla de Requisitos' : `${fecha(d.created_at)} · ${d.decidido_por}`}
                   {d.postulacion_id !== p.id && ' · en una postulación anterior'}
+                  {d.decidido_por !== 'planilla' &&
+                    d.postulacion_id === p.id &&
+                    (d.planilla_escrita_at ? ' · ya está en ESTADO de la planilla' : ' · se escribe en ESTADO de la planilla en unos minutos')}
                 </span>
                 <div>{d.motivo}</div>
               </div>
@@ -864,18 +870,19 @@ function Ficha({
             />
             <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
               <button className="btn rc-btn rc-b-avanza" disabled={!motivoOk || guardando} onClick={() => decidir('avanza')}>
-                Avanza
+                Avanza (APTO)
               </button>
               <button className="btn rc-btn rc-b-no" disabled={!motivoOk || guardando} onClick={() => decidir('no_avanza')}>
-                No avanza
+                No avanza (NO CUMPLE)
               </button>
               <button className="btn rc-btn" disabled={!motivoOk || guardando} onClick={() => decidir('en_espera')}>
-                En espera
+                En espera (REVISAR)
               </button>
             </div>
             {error && <div className="rc-err" style={{ marginTop: 6 }}>{error}</div>}
             <div className="rc-sub" style={{ marginTop: 6 }}>
-              Por ahora esto no manda mails ni toca la planilla de Procesos: solo deja registrada la decisión.
+              Se escribe en la columna ESTADO de la planilla de Requisitos (en unos 5 minutos), y lo que cambien en la planilla
+              se ve acá. No manda mails.
             </div>
           </div>
         </div>
